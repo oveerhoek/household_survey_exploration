@@ -1,0 +1,58 @@
+---
+title: "Population Density of Russia: The Siberian Effect"
+output: html_notebook
+---
+
+## Motivation
+
+A large share of Russia's territory lies in Siberia, a vast region known for its extreme climate and very low population density.  
+Because Siberia covers such a large portion of the country, it strongly influences Russia's overall population density.
+
+In this notebook we download public data from the **World Bank** to visualize how sparsely populated Russia is over time.
+
+## Load packages
+
+```{r setup}
+library(WDI)
+library(tidyverse)
+```
+
+## Download World Bank data
+
+We use the World Bank indicator:
+
+- **EN.POP.DNST** — Population density (people per square km of land area)
+
+```{r data}
+rus_density <- WDI(
+  country = "RU",
+  indicator = "EN.POP.DNST",
+  start = 1960,
+  end = 2023
+) %>%
+  as_tibble() %>%
+  rename(pop_density = EN.POP.DNST)
+```
+
+## Plot population density over time
+
+```{r plot}
+ggplot(rus_density, aes(x = year, y = pop_density)) +
+  geom_line(color = "steelblue", linewidth = 1.2) +
+  geom_point(color = "darkred", size = 2) +
+  labs(
+    title = "Russia's Population Density Over Time",
+    subtitle = "The vast and sparsely populated region of Siberia keeps national density very low",
+    x = "Year",
+    y = "People per square kilometer",
+    caption = "Source: World Bank (WDI)"
+  ) +
+  theme_minimal()
+```
+
+## Interpretation
+
+Russia's population density is extremely low compared to most countries.  
+This is largely due to **Siberia**, which makes up the majority of Russia's land area but contains relatively few inhabitants.
+
+The plot highlights how the country's population density has remained low and fairly stable over time.
