@@ -1,0 +1,20 @@
+Loading dependencies and data set
+
+```{r}
+library(tidyverse)
+library(stargazer)
+library(modelsummary)
+
+df <- wooldridge::kielmc
+```
+
+Summary statistics
+
+```{r}
+stargazer(df, type = "text")
+```
+
+```{r}
+simple_model <- lm(rprice ~ nearinc, data = df %>% filter(year == 1981))
+modelsummary(simple_model, stars = c("*" = .10, "**" = .05, "***" = .01),)
+```
