@@ -14,10 +14,10 @@ Key variables in the dataset:
 - `rprice`: real housing price
 - `nearinc`: indicator equal to 1 if the house is near the incinerator
 - `year`: year of sale (1978 or 1981)
-- `age`: age of the house
-- `area`: size of the house
 - `rooms`: number of rooms
-- `bath`: number of bathrooms
+- `baths`: number of bathrooms
+- `larea`: log of house area
+- `lland`: log of land area
 
 The incinerator was announced between the two observed years. Houses **near the incinerator** form the treatment group, while houses **far away** serve as the control group.
 
@@ -124,14 +124,14 @@ did_model1 <- lm(
 
 Housing characteristics may influence price levels. We therefore add controls such as:
 
-- house size
+- house size (`larea`)
+- land size (`lland`)
 - number of rooms
-- bathrooms
-- age
+- number of bathrooms
 
 ```{r}
 did_model2 <- lm(
-  rprice ~ nearinc + post + did + age + area + rooms + bath,
+  rprice ~ nearinc + post + did + larea + lland + rooms + baths,
   data = df
 )
 ```
@@ -147,7 +147,7 @@ df <- df %>%
   )
 
 did_model3 <- lm(
-  lprice ~ nearinc + post + did + age + area + rooms + bath,
+  lprice ~ nearinc + post + did + larea + lland + rooms + baths,
   data = df
 )
 ```
