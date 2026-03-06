@@ -177,7 +177,7 @@ modelsummary(
     "Log price model" = did_model3
   ),
   stars = c("*" = .10, "**" = .05, "***" = .01),
-  output = "kable"
+  output = "markdown"
 )
 ```
 
