@@ -1,0 +1,89 @@
+---
+title: "Estimating the Mincer equation with SOEP data"
+output: html_notebook
+---
+
+# Estimating the Mincer earnings function with SOEP data
+
+## The Mincer earnings function
+
+The Mincer earnings function is given by:
+
+$$
+log\:w=as+bt-{ct}^2+other\:variables
+$$
+
+where:
+
+-   $w$ is the worker's wage rate;
+
+-   $s$ is the number of years in schooling;
+
+-   $t$ gives the number of years of labor market experience;
+
+-   $t^2$ is a quadratic on experience that captures the concavity of the age-earnings profile.
+
+## Description of SOEP data
+
+The German Socio-Economic Panel (SOEP) is a long-running longitudinal survey of households in Germany, conducted annually since 1984 by the German Institute for Economic Research (DIW Berlin).
+
+In the context of estimating the Mincer earnings function, the SOEP is particularly valuable because it provides individual-level panel data on wages, education, and labor market experience, which are the core variables required in the Mincer framework.
+
+## Constructing the data set
+
+To construct the data set, we will use harmonized variables. DIW have helpfully harmonized several important variables across survey waves. We will use:
+
+-   pgen: student enrollment,
+
+-   pequiv: income, age, grant, number of years of education
+
+-   pbrutto: parental co-residence
+
+-   bioparen: parental income
+
+### R initialization
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(haven)
+library(stargazer)
+library(naniar)
+library(modelsummary)
+
+theme_set(theme_minimal())
+
+SOEP_PATH <- "../../data/soep/SOEP-CORE.v40.1eu_Stata/Stata_DE/soepdata/"
+```
+
+### Loading data files
+
+```{r load, include = FALSE}
+pgen <- haven::read_dta(paste0(SOEP_PATH, "pgen.dta"))
+pequiv <- haven::read_dta(paste0(SOEP_PATH, "pequiv.dta"))
+bioparen <- haven::read_dta(paste0(SOEP_PATH, "bioparen.dta"))
+pbrutto <- haven::read_dta(paste0(SOEP_PATH, "pbrutto.dta"))
+bioedu <- haven::read_dta(paste0(SOEP_PATH, "bioedu.dta"))
+ppathl <- haven::read_dta(paste0(SOEP_PATH, "ppathl.dta"))
+pl <- haven::read_dta(paste0(SOEP_PATH, "pl.dta"))
+```
+
+### Extracting variables
+
+```{r}
+var1 <- pequiv %>% 
+  transmute(
+    pid,
+    syear,
+    
+  )
+```
+
+## Naive estimation
+
+First, we will
+
+## Estimation with controls
+
+## Estimation with parental co-residence
