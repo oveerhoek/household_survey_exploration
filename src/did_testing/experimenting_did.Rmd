@@ -1,20 +1,192 @@
-Loading dependencies and data set
+---
+title: "Difference-in-Differences Example: Kiel Housing Data"
+output: html_document
+---
+
+# Introduction
+
+In this document we illustrate a **Difference-in-Differences (DiD)** approach using the `kielmc` dataset from the **wooldridge** package.
+
+The dataset studies housing prices in Kiel, Wisconsin, before and after the construction of a **municipal incinerator** (waste incineration plant). The main question is whether proximity to the incinerator reduced house prices.
+
+Key variables in the dataset:
+
+- `rprice`: real housing price
+- `nearinc`: indicator equal to 1 if the house is near the incinerator
+- `year`: year of sale (1978 or 1981)
+- `age`: age of the house
+- `area`: size of the house
+- `rooms`: number of rooms
+- `bath`: number of bathrooms
+
+The incinerator was announced between the two observed years. Houses **near the incinerator** form the treatment group, while houses **far away** serve as the control group.
+
+The Difference-in-Differences strategy compares:
+
+- price changes over time
+- between houses near and far from the incinerator
+
+# Load dependencies and data
 
 ```{r}
 library(tidyverse)
 library(stargazer)
 library(modelsummary)
+library(wooldridge)
 
 df <- wooldridge::kielmc
 ```
 
-Summary statistics
+# Summary statistics
+
+We start with summary statistics to understand the structure of the data.
 
 ```{r}
 stargazer(df, type = "text")
 ```
 
+# Define treatment and post variables
+
+For a DiD design we need two key variables:
+
+- **Treatment group**: houses near the incinerator (`nearinc`)
+- **Post period**: year after the incinerator announcement (1981)
+
+We create a `post` indicator and the DiD interaction term.
+
 ```{r}
-simple_model <- lm(rprice ~ nearinc, data = df %>% filter(year == 1981))
-modelsummary(simple_model, stars = c("*" = .10, "**" = .05, "***" = .01),)
+df <- df %>%
+  mutate(
+    post = ifelse(year == 1981, 1, 0),
+    did = nearinc * post
+  )
 ```
+
+# Check group sizes
+
+Before estimating models we verify the number of observations in each group.
+
+```{r}
+df %>%
+  count(nearinc, post)
+```
+
+# Mean prices by group
+
+A standard diagnostic in DiD is to inspect mean outcomes by group and time.
+
+```{r}
+df %>%
+  group_by(nearinc, post) %>%
+  summarise(
+    mean_price = mean(rprice, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+# Visual inspection of trends
+
+Although we only have two periods, plotting the mean prices helps visualize the DiD structure.
+
+```{r}
+df %>%
+  group_by(year, nearinc) %>%
+  summarise(
+    mean_price = mean(rprice, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = year, y = mean_price, color = factor(nearinc))) +
+  geom_line() +
+  geom_point() +
+  labs(
+    color = "Near Incinerator",
+    title = "Average House Prices by Treatment Status",
+    y = "Average Real Price"
+  )
+```
+
+# Baseline Difference-in-Differences model
+
+The standard DiD regression is:
+
+price = β0 + β1 nearinc + β2 post + β3 (nearinc × post) + u
+
+The coefficient of interest is **β3**, which measures the causal effect of being near the incinerator after its announcement.
+
+```{r}
+did_model1 <- lm(
+  rprice ~ nearinc + post + did,
+  data = df
+)
+```
+
+# DiD model with housing controls
+
+Housing characteristics may influence price levels. We therefore add controls such as:
+
+- house size
+- number of rooms
+- bathrooms
+- age
+
+```{r}
+did_model2 <- lm(
+  rprice ~ nearinc + post + did + age + area + rooms + bath,
+  data = df
+)
+```
+
+# Log price specification
+
+Housing prices are often analyzed in logs so coefficients can be interpreted as percentage effects.
+
+```{r}
+df <- df %>%
+  mutate(
+    lprice = log(rprice)
+  )
+
+did_model3 <- lm(
+  lprice ~ nearinc + post + did + age + area + rooms + bath,
+  data = df
+)
+```
+
+# Model comparison
+
+We present all models together for easier comparison.
+
+```{r}
+modelsummary(
+  list(
+    "DiD baseline" = did_model1,
+    "DiD with controls" = did_model2,
+    "Log price model" = did_model3
+  ),
+  stars = c("*" = .10, "**" = .05, "***" = .01)
+)
+```
+
+# Interpreting the DiD coefficient
+
+The coefficient on the interaction term (`did`) measures the **Difference-in-Differences estimate**.
+
+Interpretation:
+
+- If negative and significant: houses near the incinerator lost value after the announcement.
+- If close to zero: no measurable effect.
+- In the log model: the coefficient approximates a **percentage change in house prices**.
+
+# Assumptions behind DiD
+
+The key identifying assumption is the **parallel trends assumption**:
+
+Without the treatment (the incinerator), housing prices near and far from the site would have evolved similarly over time.
+
+Because the dataset contains only two years, we cannot directly test pre-treatment trends, but we can still check:
+
+- similarity of groups before treatment
+- balance in housing characteristics
+- visual patterns in price changes
+
+These checks help assess whether the DiD design is credible.
