@@ -1,6 +1,6 @@
 set.seed(123)
 
-n <- 5000
+n <- 15000
 
 # Education in years (SOEP-like distribution)
 education_years <- sample(8:20, n, replace = TRUE, prob = dnorm(8:20, mean = 13, sd = 2.5))
