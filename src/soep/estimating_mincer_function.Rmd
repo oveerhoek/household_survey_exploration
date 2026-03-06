@@ -69,6 +69,38 @@ ppathl <- haven::read_dta(paste0(SOEP_PATH, "ppathl.dta"))
 pl <- haven::read_dta(paste0(SOEP_PATH, "pl.dta"))
 ```
 
+### Description of loaded SOEP files
+
+The following SOEP data files are used to construct the analysis dataset. Each file contains a different type of information about individuals or their family background.
+
+**pgen.dta**
+
+The `pgen` file contains generated individual-level variables for each survey year. These include standardized labor market variables such as employment status, labor market experience indicators, and information on participation in education or training. The file is commonly used in empirical labor economics applications because it harmonizes key employment-related variables across waves.
+
+**pequiv.dta**
+
+The `pequiv` file provides equivalized income variables and several demographic characteristics. It includes measures of individual and household income, age, and years of education. These variables are central for estimating the Mincer equation because they allow us to construct wages, schooling measures, and demographic controls.
+
+**bioparen.dta**
+
+The `bioparen` file contains background information on respondents' biological parents. It includes variables such as parental education, occupation, and sometimes income measures. These variables are often used to capture family background and intergenerational socioeconomic status.
+
+**pbrutto.dta**
+
+The `pbrutto` file contains detailed gross income components for individuals. It includes different types of earnings such as wages and salaries before taxes and deductions. These variables are useful when constructing alternative measures of income or wages.
+
+**bioedu.dta**
+
+The `bioedu` file records educational histories of respondents. It includes information about schooling episodes, degrees obtained, and the timing of educational attainment. This information can be used to construct more detailed measures of educational attainment.
+
+**ppathl.dta**
+
+The `ppathl` file contains information on individuals’ life-course trajectories, particularly related to employment and labor market histories. It can be used to reconstruct employment spells and derive measures of labor market experience.
+
+**pl.dta**
+
+The `pl` (person-level) file contains core survey responses for individuals in a given wave. It includes a wide variety of demographic, socioeconomic, and subjective variables collected in the main individual questionnaire.
+
 ### Extracting variables
 
 ```{r}
