@@ -47,6 +47,7 @@ ggplot(rus_density, aes(x = year, y = pop_density)) +
     y = "People per square kilometer",
     caption = "Source: World Bank (WDI)"
   ) +
+  scale_y_continuous(limits = c(0, NA)) +
   theme_minimal()
 ```
 
