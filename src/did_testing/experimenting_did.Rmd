@@ -30,9 +30,9 @@ The Difference-in-Differences strategy compares:
 
 ```{r}
 library(tidyverse)
-library(stargazer)
 library(modelsummary)
 library(wooldridge)
+library(knitr)
 
 df <- wooldridge::kielmc
 ```
@@ -42,7 +42,16 @@ df <- wooldridge::kielmc
 We start with summary statistics to understand the structure of the data.
 
 ```{r}
-stargazer(df, type = "text")
+summary_table <- df %>%
+  summarise(
+    observations = n(),
+    mean_price = mean(rprice, na.rm = TRUE),
+    sd_price = sd(rprice, na.rm = TRUE),
+    mean_rooms = mean(rooms, na.rm = TRUE),
+    mean_baths = mean(baths, na.rm = TRUE)
+  )
+
+kable(summary_table, caption = "Basic Summary Statistics")
 ```
 
 # Define treatment and post variables
@@ -67,8 +76,10 @@ df <- df %>%
 Before estimating models we verify the number of observations in each group.
 
 ```{r}
-df %>%
+group_sizes <- df %>%
   count(nearinc, post)
+
+kable(group_sizes, caption = "Number of Observations by Treatment and Period")
 ```
 
 # Mean prices by group
@@ -76,12 +87,14 @@ df %>%
 A standard diagnostic in DiD is to inspect mean outcomes by group and time.
 
 ```{r}
-df %>%
+mean_prices <- df %>%
   group_by(nearinc, post) %>%
   summarise(
     mean_price = mean(rprice, na.rm = TRUE),
     .groups = "drop"
   )
+
+kable(mean_prices, caption = "Average House Prices by Group and Period")
 ```
 
 # Visual inspection of trends
@@ -163,7 +176,8 @@ modelsummary(
     "DiD with controls" = did_model2,
     "Log price model" = did_model3
   ),
-  stars = c("*" = .10, "**" = .05, "***" = .01)
+  stars = c("*" = .10, "**" = .05, "***" = .01),
+  output = "kable"
 )
 ```
 
