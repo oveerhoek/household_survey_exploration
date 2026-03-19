@@ -60,61 +60,149 @@ SOEP_PATH <- "../../data/soep/SOEP-CORE.v40.1eu_Stata/Stata_DE/soepdata/"
 ### Loading data files
 
 ```{r load, include = FALSE}
-pgen <- haven::read_dta(paste0(SOEP_PATH, "pgen.dta"))
-pequiv <- haven::read_dta(paste0(SOEP_PATH, "pequiv.dta"))
-bioparen <- haven::read_dta(paste0(SOEP_PATH, "bioparen.dta"))
-pbrutto <- haven::read_dta(paste0(SOEP_PATH, "pbrutto.dta"))
-bioedu <- haven::read_dta(paste0(SOEP_PATH, "bioedu.dta"))
-ppathl <- haven::read_dta(paste0(SOEP_PATH, "ppathl.dta"))
-pl <- haven::read_dta(paste0(SOEP_PATH, "pl.dta"))
+
+files <- list(
+  # i11110: individual labor income annual (Euro)
+  pequiv = c("pid", "syear", "i11110", "d11109"),
+  # sex: sex
+  # gebjahr: year of birth
+  # netto: current survey status
+  # pop: sample membership
+  # phrf: weighting factor
+  ppathl = c("pid", "syear", "sex", "gebjahr", "netto", "pop", "phrf"),
+  # pgtatzeit: actual work time per week
+  # pgexpft: working experience fte
+  # pgbilzeit: amount of education or traiing in years
+  # pgfamstd: marital status
+  pgen   = c("pid", "syear", "pgtatzeit", "pgexpft", "pgbilzeit", "pgfamstd", "pglabgro")
+)
+
+soep <- purrr::imap(
+  files,
+  ~ read_dta(
+      file.path(SOEP_PATH, paste0(.y, ".dta")),
+      col_select = all_of(.x)
+    )
+)
+
+df_raw <- purrr::reduce(
+  soep,
+  dplyr::full_join,
+  by = c("pid", "syear")
+)
+
+rm(soep)
+rm(files)
 ```
 
 ### Description of loaded SOEP files
 
 The following SOEP data files are used to construct the analysis dataset. Each file contains a different type of information about individuals or their family background.
 
-**pgen.dta**
+**pgen.dta: `pid, syear, pgtatzeit, pgexpft, pgbilzeit, pgfamstd, pglabgro`**
 
 The `pgen` file contains generated individual-level variables for each survey year. These include standardized labor market variables such as employment status, labor market experience indicators, and information on participation in education or training. The file is commonly used in empirical labor economics applications because it harmonizes key employment-related variables across waves.
 
-**pequiv.dta**
+**pequiv.dta: `i11110, d11109`**
 
 The `pequiv` file provides equivalized income variables and several demographic characteristics. It includes measures of individual and household income, age, and years of education. These variables are central for estimating the Mincer equation because they allow us to construct wages, schooling measures, and demographic controls.
 
-**bioparen.dta**
+**ppathl.dta: `sex, gebjahr, netto, pop, phrf`**
 
-The `bioparen` file contains background information on respondents' biological parents. It includes variables such as parental education, occupation, and sometimes income measures. These variables are often used to capture family background and intergenerational socioeconomic status.
-
-**pbrutto.dta**
-
-The `pbrutto` file contains detailed gross income components for individuals. It includes different types of earnings such as wages and salaries before taxes and deductions. These variables are useful when constructing alternative measures of income or wages.
-
-**bioedu.dta**
-
-The `bioedu` file records educational histories of respondents. It includes information about schooling episodes, degrees obtained, and the timing of educational attainment. This information can be used to construct more detailed measures of educational attainment.
-
-**ppathl.dta**
-
-The `ppathl` file contains information on individuals’ life-course trajectories, particularly related to employment and labor market histories. It can be used to reconstruct employment spells and derive measures of labor market experience.
-
-**pl.dta**
-
-The `pl` (person-level) file contains core survey responses for individuals in a given wave. It includes a wide variety of demographic, socioeconomic, and subjective variables collected in the main individual questionnaire.
+The `ppathl` file contains information on individuals' life-course trajectories, particularly related to employment and labor market histories. It can be used to reconstruct employment spells and derive measures of labor market experience.
 
 ### Extracting variables
 
 ```{r}
-var1 <- pequiv %>% 
+df <- df_raw %>% 
   transmute(
     pid,
     syear,
-    
-  )
+    income_hourly = pglabgro,
+    income_annual = i11110,
+    educ_years = d11109,
+    male = case_when(
+      sex == 2 ~ 1,
+      sex == 1 ~ 0,
+      .default = NA
+      ),
+    birth_year = gebjahr,
+    age = syear - birth_year,
+    survey_status = netto,
+    population_status = pop,
+    weighting_factor = phrf,
+    marital_status = pgfamstd,
+    hours_worked_actual = pgtatzeit,
+    work_experience_fte = pgexpft,
+    education_training_years = pgbilzeit
+  ) %>% 
+  mutate(
+    across(
+      everything(),
+      ~ replace (.x, .x %in% -9:-1, NA)
+    )
+  ) %>% 
+  zap_label() %>% 
+  zap_labels()
 ```
 
-## Naive estimation
+## Canonical cross-sectional Mincer model
 
-First, we will
+$$
+log\:w_i=\beta_0s_i+\beta_1t_i+c{t_i}^2+\epsilon_i
+$$
+
+```{r}
+model1 <- df %>% 
+  filter(syear == 2023) %>%
+  filter(age >= 18 & age < 65) %>% 
+  filter(income_hourly > 0) %>% 
+  transmute(
+    log_wage = log(income_hourly + 1),
+    educ_years,
+    experience = pmax(0, (syear - birth_year) - educ_years - 6),
+    experience_sq = experience ** 2
+  ) %>% 
+  lm(log_wage ~ educ_years + experience + experience_sq, data = .) 
+
+model1$coefficients[["educ_years"]]
+
+modelsummary(
+  models = list(
+    "Canonical" = model1
+  ),
+  stars = c('*' = .1, '**' = .05, '***' = .01)
+)
+```
+
+```{r}
+
+df_reg <- df %>% 
+    filter(age >= 18 & age < 65) %>% 
+    filter(income_hourly > 0) %>% 
+    transmute(
+      syear,
+      log_wage = log(income_hourly + 1),
+      educ_years,
+      experience = pmax(0, (syear - birth_year) - educ_years - 6),
+      experience_sq = experience ** 2
+    )
+
+returns_to_education <- tibble()
+
+for (year in min(df$syear):max(df$syear)) {
+  educ_coefficient <- lm(
+    formula = log_wage ~ educ_years + experience + experience_sq,
+    data = filter(df_reg, syear == year)
+  )$coefficients[["educ_years"]]
+  returns_to_education <- bind_rows(returns_to_education, tibble(year = year, return_educ = educ_coefficient))
+}
+```
+
+```{r}
+ggplot(returns_to_education, aes(x = year, y = return_educ)) +
+  geom_line()
+```
 
 ## Estimation with controls
 

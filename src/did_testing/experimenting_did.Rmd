@@ -11,20 +11,20 @@ The dataset studies housing prices in Kiel, Wisconsin, before and after the cons
 
 Key variables in the dataset:
 
-- `rprice`: real housing price
-- `nearinc`: indicator equal to 1 if the house is near the incinerator
-- `year`: year of sale (1978 or 1981)
-- `rooms`: number of rooms
-- `baths`: number of bathrooms
-- `larea`: log of house area
-- `lland`: log of land area
+-   `rprice`: real housing price
+-   `nearinc`: indicator equal to 1 if the house is near the incinerator
+-   `year`: year of sale (1978 or 1981)
+-   `rooms`: number of rooms
+-   `baths`: number of bathrooms
+-   `larea`: log of house area
+-   `lland`: log of land area
 
 The incinerator was announced between the two observed years. Houses **near the incinerator** form the treatment group, while houses **far away** serve as the control group.
 
 The Difference-in-Differences strategy compares:
 
-- price changes over time
-- between houses near and far from the incinerator
+-   price changes over time
+-   between houses near and far from the incinerator
 
 # Load dependencies and data
 
@@ -58,8 +58,8 @@ kable(summary_table, caption = "Basic Summary Statistics")
 
 For a DiD design we need two key variables:
 
-- **Treatment group**: houses near the incinerator (`nearinc`)
-- **Post period**: year after the incinerator announcement (1981)
+-   **Treatment group**: houses near the incinerator (`nearinc`)
+-   **Post period**: year after the incinerator announcement (1981)
 
 We create a `post` indicator and the DiD interaction term.
 
@@ -137,10 +137,10 @@ did_model1 <- lm(
 
 Housing characteristics may influence price levels. We therefore add controls such as:
 
-- house size (`larea`)
-- land size (`lland`)
-- number of rooms
-- number of bathrooms
+-   house size (`larea`)
+-   land size (`lland`)
+-   number of rooms
+-   number of bathrooms
 
 ```{r}
 did_model2 <- lm(
@@ -187,9 +187,9 @@ The coefficient on the interaction term (`did`) measures the **Difference-in-Dif
 
 Interpretation:
 
-- If negative and significant: houses near the incinerator lost value after the announcement.
-- If close to zero: no measurable effect.
-- In the log model: the coefficient approximates a **percentage change in house prices**.
+-   If negative and significant: houses near the incinerator lost value after the announcement.
+-   If close to zero: no measurable effect.
+-   In the log model: the coefficient approximates a **percentage change in house prices**.
 
 # Assumptions behind DiD
 
@@ -199,8 +199,8 @@ Without the treatment (the incinerator), housing prices near and far from the si
 
 Because the dataset contains only two years, we cannot directly test pre-treatment trends, but we can still check:
 
-- similarity of groups before treatment
-- balance in housing characteristics
-- visual patterns in price changes
+-   similarity of groups before treatment
+-   balance in housing characteristics
+-   visual patterns in price changes
 
 These checks help assess whether the DiD design is credible.
