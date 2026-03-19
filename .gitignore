@@ -1,7 +1,11 @@
 # Project files
+.Rproj.user
 Household Survey Insights.Rproj
+*.Rproj
 data
 tmp
+src/opencode.json
+
 
 # History files
 .Rhistory
