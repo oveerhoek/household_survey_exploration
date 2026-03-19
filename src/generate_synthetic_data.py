@@ -50,7 +50,7 @@ class FileResult:
 def parse_args() -> argparse.Namespace:
     project_root = Path(__file__).resolve().parents[1]
     default_input = project_root / "data"
-    default_output = project_root / "data-synthetic"
+    default_output = project_root / "data-sanitized"
 
     parser = argparse.ArgumentParser(
         description=(
