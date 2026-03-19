@@ -5,6 +5,9 @@ Household Survey Insights.Rproj
 data
 tmp
 src/opencode.json
+.venv
+data-synthetic
+src/__pycache__
 
 
 # History files
