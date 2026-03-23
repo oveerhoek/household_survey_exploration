@@ -44,7 +44,7 @@ where:
 library(tidyverse)
 
 df_org <- readr::read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>% 
-  select(pid, syear, age, student, coresidence, grant) %>% 
+  select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
   filter(syear %in% c(2016, 2017)) %>% 
   filter(age >= 18 & age <= 23) %>% 
   filter(student == 1) %>% 
@@ -54,23 +54,31 @@ df_org <- readr::read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>%
       syear == 2016 ~ 0,
       syear == 2017 ~ 1,
       .default = NA
+    ),
+    eligible = case_when(
+      parental_income > log(30000) ~ 0,
+      parental_income <= log(30000) ~ 1,
+      .default = NA
     )
   ) %>% 
-  arrange(pid, syear)
-
-eligible_students <- df_org %>% 
-  group_by(pid) %>% 
-  summarize(n = n(), eligible = 
-              case_when(
-                sum(grant > 0) > 0 ~ 1,
-                sum(grant > 0) == 0 ~ 0,
-                .default = NA)
-  )
-
-df <- left_join(df_org, eligible_students) %>% 
-  filter(n == 2) %>% 
-  select(-n) %>% 
+  select(-syear, -age) %>% 
+  arrange(pid, post) %>% 
   drop_na()
+
+# eligible_students <- df_org %>% 
+#   group_by(pid) %>% 
+#   summarize(n = n(), eligible = 
+#               case_when(
+#                 sum(grant > 0) > 0 ~ 1,
+#                 sum(grant > 0) == 0 ~ 0,
+#                 .default = NA)
+#   )
+
+# df <- left_join(df_org, eligible_students) %>% 
+# df <- df %>% 
+#   filter(n == 2) %>% 
+#   select(-n, -grant) %>% 
+#   drop_na()
 
 rm(df_org, eligible_students)
 ```
@@ -79,6 +87,37 @@ rm(df_org, eligible_students)
 library(fixest)
 
 estimation <- feols(coresidence ~ eligible * post, data = df)
+
+modelsummary(estimation,
+             estimate  = "{estimate}{stars}",
+            statistic = "({std.error})",
+            stars = c('*' = .10, '**' = .05, '***' = .01),)
+```
+
+```{r}
+df %>% 
+  group_by(eligible, post) %>% 
+  summarize(mean_core = mean(coresidence, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+
+  ggplot(aes(x = post, y = mean_core, group = eligible, color = factor(eligible))) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(
+    values = c("darkred", "darkblue"),
+    labels = c("Not eligible", "Eligible")
+  ) +
+  scale_x_continuous(
+    breaks = c(0, 1),
+    labels = c("Pre-reform", "Post-reform")
+  ) +
+  labs(
+    x = "",
+    y = "Mean coresidence",
+    color = ""
+  ) +
+  ylim(0, 1) +
+  theme_minimal()
 ```
 
 ## IV-DiD
