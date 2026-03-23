@@ -1,0 +1,116 @@
+---
+title: "Moving out for a better career: Parental co-residence and later earnings"
+output: html_notebook
+---
+
+## Naive model
+
+$$
+\log(\text{income})_{i} = \beta_0 + \beta_1 \,\text{coresidence}_{i} + \beta_2 X_{i} + \epsilon_{i}
+$$
+
+where:
+
+-   $i$ is the individual;
+
+-   $\text{income}$ is the income earned by individual $i$ in log Euro at the age of 30;
+
+-   $\text{coresidence}$ is the number of years the individual lived with their parents from age 18 to age 23;
+
+-   $X$ is a vector of control variables.
+
+$\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
+
+## Simple difference-in-differences
+
+I will use a simple DiD analysis to estimate the effect of the 2016 BAföG reform on parental co-residence from the age of 18 to 23. The treatment group consists of students who are eligible for BAföG, because their parents earn below the income threshold. The control group consists of students who are not eligible for BAföG, because their parents earn above the income threshold.
+
+$$
+\text{coresidence}_{i} = \alpha + \beta_1 \text{eligible}_i + \beta_2 \text{post}_t 
++ \delta \left( \text{eligible}_i \times \text{post}_t \right) + \varepsilon_{i}
+$$
+
+where:
+
+-   $i$ is the individual;
+
+-   $\text{eligible}$ is whether the individual was eligible for BAfög
+
+-   $\text{coresidence}$ indicates whether the individual was living with their parents;
+
+-   $\text{post}_t$ is equal to 1 for observations in the period after the 2016 BAföG reform.
+
+```{r echo=F, results='hide'}
+library(tidyverse)
+
+df_org <- readr::read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>% 
+  select(pid, syear, age, student, coresidence, grant) %>% 
+  filter(syear %in% c(2016, 2017)) %>% 
+  filter(age >= 18 & age <= 23) %>% 
+  filter(student == 1) %>% 
+  select(-student) %>% 
+  mutate(
+    post = case_when(
+      syear == 2016 ~ 0,
+      syear == 2017 ~ 1,
+      .default = NA
+    )
+  ) %>% 
+  arrange(pid, syear)
+
+eligible_students <- df_org %>% 
+  group_by(pid) %>% 
+  summarize(n = n(), eligible = 
+              case_when(
+                sum(grant > 0) > 0 ~ 1,
+                sum(grant > 0) == 0 ~ 0,
+                .default = NA)
+  )
+
+df <- left_join(df_org, eligible_students) %>% 
+  filter(n == 2) %>% 
+  select(-n) %>% 
+  drop_na()
+
+rm(df_org, eligible_students)
+```
+
+```{r}
+library(fixest)
+
+estimation <- feols(coresidence ~ eligible * post, data = df)
+```
+
+## IV-DiD
+
+## IV-DiD (cohort-based IV specification)
+
+### First stage
+
+$$
+\text{coresidence}_i = \pi \left( \text{treat}_i \times \text{post}_i \right) + \delta_c + u_i
+$$
+
+where:
+
+-   $i$ is the individual;
+-   $c$ denotes the individual's cohort (for example, birth cohort or cohort defined by age at reform);
+-   $\text{coresidence}_i$ is the number of years the individual lived with their parents between ages 18 and 23;
+-   $\text{treat}_i$ is an indicator for being exposed to the reform;
+-   $\text{post}_i$ is an indicator for belonging to a cohort affected by the reform;
+-   $\text{treat}_i \times \text{post}_i$ is the instrument, capturing exposure induced by the reform;
+-   $\delta_c$ are cohort fixed effects, capturing factors common to individuals in the same cohort;
+-   $u_i$ is the error term.
+
+### Second stage
+
+$$
+\log(\text{earnings})_i = \beta \, \widehat{\text{coresidence}}_i + \delta_c + \epsilon_i
+$$
+
+where:
+
+-   $\text{earnings}_i$ is later-life log earnings of individual $i$;
+-   $\widehat{\text{coresidence}}_i$ is the predicted value of coresidence from the first-stage regression;
+-   $\delta_c$ are cohort fixed effects;
+-   $\epsilon_i$ is the error term.
