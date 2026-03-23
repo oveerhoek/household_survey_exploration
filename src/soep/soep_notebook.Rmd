@@ -7,8 +7,6 @@ output: html_notebook
 
 ## Model
 
-Naive model:
-
 $$
 log(income_{i,t+5})=\beta_0+\beta_1coresidence_it+\beta_2X_{it}+\epsilon_{it}
 $$

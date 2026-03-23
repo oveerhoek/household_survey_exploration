@@ -1,0 +1,48 @@
+---
+title: "Moving out for a better career: Parental co-residence and later earnings"
+output: html_notebook
+---
+
+## Naive model
+
+$$
+\log(\text{income}_{i,t+5}) = \beta_0 + \beta_1 \,\text{coresidence}_{it} + \beta_2 X_{it} + \epsilon_{it}
+$$
+
+where:
+
+-   $i$ is the individual;
+
+-   $t$ is the year;
+
+-   $\text{income}$ is the income earned by individual $i$ in year $t$ in Euro;
+
+-   $\text{coresidence}$ is the number of years the individual lived with their parents from age 18 to age 23;
+
+-   $X$ is a vector of control variables.
+
+$\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
+
+## IV-DiD
+
+First stage:
+
+$$
+\text{coresidence}_{it} = \pi \left( \text{treat}_i \times \text{post}_t \right) + \gamma_i + \delta_t + u_{it}
+$$
+
+where:
+
+-   $i$ is the individual;
+
+-   $t$ is the year;
+
+-   $\text{treat}$ is the treatment dummy;
+
+-   $\text{post}$ is the
+
+Second stage:L
+
+$$
+Y_{it} = \beta \widehat{CoRes}_{it} + \gamma_i + \delta_t + \epsilon_{it}
+$$
