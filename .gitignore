@@ -3,6 +3,7 @@
 Household Survey Insights.Rproj
 *.Rproj
 data
+data-sanitized
 tmp
 src/opencode.json
 .venv
