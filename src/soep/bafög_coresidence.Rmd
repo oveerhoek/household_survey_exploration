@@ -8,17 +8,55 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(modelsummary)
+library(fixest)
+
+df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
 ```
 
 ## Data
 
-```{r}
-df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
+### General summary statistics
 
+```{r}
 datasummary(
-  formula = All(df) ~ Mean + SD + Min + Median + Max,
+  formula = 
+    (`Income (log Euro)` = income) + 
+    (`Parental co-residence (dummy)` = coresidence) +
+    (`BAföG grant received (log Euro)` = grant) +
+    (`Student status (dummy)` = student) +
+    (`Age (years)` = age) +
+    (`Parental income (log Euro)` = parental_income) +
+    (`Years of schooling (years)` = educ)
+    ~ N + PercentMissing + Mean + Median + SD + Min + Max,
   data = df
 )
+```
+
+```{r}
+df %>% 
+  group_by(syear) %>% 
+  summarize(
+    N = n(),
+    income = mean(income, na.rm = TRUE),
+    coresidence = mean(coresidence, na.rm = TRUE),
+    student = mean(student, na.rm = TRUE)
+  ) %>% 
+  ungroup() %>% 
+  kableExtra::kable()
+```
+
+### Eligibility for BAföG
+
+```{r}
+df %>% 
+  mutate(parental_income_bin = round(parental_income)) %>% 
+  filter(age >= 18 & age < 23 & student == 1) %>% 
+  group_by(parental_income_bin) %>% 
+  summarize(
+    N = n(),
+    grant = mean(grant, na.rm = TRUE)
+  ) %>% 
+  ungroup() 
 ```
 
 ## Naive model
@@ -71,9 +109,7 @@ where:
 -   $\text{post}_t$ is equal to 1 for observations in the period after the 2016 BAföG reform.
 
 ```{r echo=F, results='hide'}
-library(tidyverse)
-
-df <- read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>% 
+df_simple_did <- df %>% 
   select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
   filter(syear %in% c(2016, 2017)) %>% 
   filter(age >= 18 & age <= 23) %>% 
@@ -98,9 +134,9 @@ df <- read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>%
 ```
 
 ```{r}
-library(fixest)
 
-estimation <- feols(coresidence ~ eligible * post, data = df)
+
+estimation <- feols(coresidence ~ eligible * post, data = df_simple_did)
 
 modelsummary(estimation,
              estimate  = "{estimate}{stars}",
@@ -111,7 +147,7 @@ modelsummary(estimation,
 **Eligibility: fuzzy RD based on family income**
 
 ```{r}
-df %>% 
+df_simple_did %>% 
   group_by(eligible, post) %>% 
   summarize(mean_core = mean(coresidence, na.rm = TRUE)) %>% 
   ungroup() %>% 
@@ -136,40 +172,34 @@ df %>%
   theme_minimal()
 ```
 
+### Pre and post trends
+
+```{r}
+trends <- df %>% 
+  select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
+  filter(syear %in% c(2016, 2017)) %>% 
+  filter(age >= 18 & age <= 23) %>% 
+  filter(student == 1) %>% 
+  select(-student) %>% 
+  mutate(
+    post = case_when(
+      syear == 2016 ~ 0,
+      syear == 2017 ~ 1,
+      .default = NA
+    ),
+    eligible = case_when(
+      parental_income > log(30000) ~ 0,
+      parental_income <= log(30000) ~ 1,
+      .default = NA
+    )
+  ) %>% 
+  select(-syear, -age) %>% 
+  arrange(pid, post) %>% 
+  drop_na()
+```
+
 Add pre and post trends
 
 Think of heterogeneity
 
 Look at geo data
-
-## IV-DiD (cohort-based IV specification)
-
-### First stage
-
-$$
-\text{coresidence}_i = \pi \left( \text{treat}_i \times \text{post}_i \right) + \delta_c + u_i
-$$
-
-where:
-
--   $i$ is the individual;
--   $c$ denotes the individual's cohort (for example, birth cohort or cohort defined by age at reform);
--   $\text{coresidence}_i$ is the number of years the individual lived with their parents between ages 18 and 23;
--   $\text{treat}_i$ is an indicator for being exposed to the reform;
--   $\text{post}_i$ is an indicator for belonging to a cohort affected by the reform;
--   $\text{treat}_i \times \text{post}_i$ is the instrument, capturing exposure induced by the reform;
--   $\delta_c$ are cohort fixed effects, capturing factors common to individuals in the same cohort;
--   $u_i$ is the error term.
-
-### Second stage
-
-$$
-\log(\text{earnings})_i = \beta \, \widehat{\text{coresidence}}_i + \delta_c + \epsilon_i
-$$
-
-where:
-
--   $\text{earnings}_i$ is later-life log earnings of individual $i$;
--   $\widehat{\text{coresidence}}_i$ is the predicted value of coresidence from the first-stage regression;
--   $\delta_c$ are cohort fixed effects;
--   $\epsilon_i$ is the error term.
