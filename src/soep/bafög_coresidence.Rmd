@@ -3,6 +3,24 @@ title: "Moving out for a better career: Parental co-residence and later earnings
 output: html_notebook
 ---
 
+## R setup
+
+```{r}
+library(tidyverse)
+library(modelsummary)
+```
+
+## Data
+
+```{r}
+df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
+
+datasummary(
+  formula = All(df) ~ Mean + SD + Min + Median + Max,
+  data = df
+)
+```
+
 ## Naive model
 
 $$
@@ -123,8 +141,6 @@ Add pre and post trends
 Think of heterogeneity
 
 Look at geo data
-
-## IV-DiD
 
 ## IV-DiD (cohort-based IV specification)
 
