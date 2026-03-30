@@ -19,6 +19,14 @@ where:
 
 -   $X$ is a vector of control variables.
 
+-   **Comment Robbert: Mensen die thuiswonen studeren sneller af**
+
+    -   **Toevoeging André: Kijk naar time preferences**
+
+    -   Traject / annual change i.p.v. level
+
+-   **André: Gerritsen Paper**
+
 $\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
 
 ## Simple difference-in-differences
@@ -29,6 +37,10 @@ $$
 \text{coresidence}_{i} = \alpha + \beta_1 \text{eligible}_i + \beta_2 \text{post}_t 
 + \delta \left( \text{eligible}_i \times \text{post}_t \right) + \varepsilon_{i}
 $$
+
+"stacked DID"
+
+Robbert: Theorie specifieker, hoe shcerper je het verband hebt, hoe beter je
 
 where:
 
@@ -43,7 +55,7 @@ where:
 ```{r echo=F, results='hide'}
 library(tidyverse)
 
-df_org <- readr::read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>% 
+df <- read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>% 
   select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
   filter(syear %in% c(2016, 2017)) %>% 
   filter(age >= 18 & age <= 23) %>% 
@@ -65,22 +77,6 @@ df_org <- readr::read_csv("../../tmp/soep/bafög_coresidence.csv", ) %>%
   arrange(pid, post) %>% 
   drop_na()
 
-# eligible_students <- df_org %>% 
-#   group_by(pid) %>% 
-#   summarize(n = n(), eligible = 
-#               case_when(
-#                 sum(grant > 0) > 0 ~ 1,
-#                 sum(grant > 0) == 0 ~ 0,
-#                 .default = NA)
-#   )
-
-# df <- left_join(df_org, eligible_students) %>% 
-# df <- df %>% 
-#   filter(n == 2) %>% 
-#   select(-n, -grant) %>% 
-#   drop_na()
-
-rm(df_org, eligible_students)
 ```
 
 ```{r}
@@ -93,6 +89,8 @@ modelsummary(estimation,
             statistic = "({std.error})",
             stars = c('*' = .10, '**' = .05, '***' = .01),)
 ```
+
+**Eligibility: fuzzy RD based on family income**
 
 ```{r}
 df %>% 
@@ -119,6 +117,12 @@ df %>%
   ylim(0, 1) +
   theme_minimal()
 ```
+
+Add pre and post trends
+
+Think of heterogeneity
+
+Look at geo data
 
 ## IV-DiD
 
