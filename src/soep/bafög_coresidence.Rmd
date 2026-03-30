@@ -22,27 +22,14 @@ datasummary(
   formula = 
     (`Income (log Euro)` = income) + 
     (`Parental co-residence (dummy)` = coresidence) +
-    (`BAföG grant received (log Euro)` = grant) +
+    (`BAföG grant received (Euro)` = grant) +
     (`Student status (dummy)` = student) +
     (`Age (years)` = age) +
     (`Parental income (log Euro)` = parental_income) +
     (`Years of schooling (years)` = educ)
-    ~ N + PercentMissing + Mean + Median + SD + Min + Max,
+    ~ N + PercentMissing + Mean + P25 + P50 + P75 + SD + Min + Max,
   data = df
 )
-```
-
-```{r}
-df %>% 
-  group_by(syear) %>% 
-  summarize(
-    N = n(),
-    income = mean(income, na.rm = TRUE),
-    coresidence = mean(coresidence, na.rm = TRUE),
-    student = mean(student, na.rm = TRUE)
-  ) %>% 
-  ungroup() %>% 
-  kableExtra::kable()
 ```
 
 ### Eligibility for BAföG
@@ -94,9 +81,9 @@ $$
 + \delta \left( \text{eligible}_i \times \text{post}_t \right) + \varepsilon_{i}
 $$
 
-"stacked DID"
+**"stacked DID"**
 
-Robbert: Theorie specifieker, hoe shcerper je het verband hebt, hoe beter je
+**Robbert: Theorie specifieker, hoe shcerper je het verband hebt, hoe beter je**
 
 where:
 
@@ -175,27 +162,46 @@ df_simple_did %>%
 ### Pre and post trends
 
 ```{r}
+treatment_group <- df_simple_did %>% 
+  filter(eligible == 1) %>% 
+  pull(pid)
+
+control_group <- df_simple_did %>% 
+  filter(eligible == 0) %>% 
+  pull(pid)
+
 trends <- df %>% 
   select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
-  filter(syear %in% c(2016, 2017)) %>% 
-  filter(age >= 18 & age <= 23) %>% 
-  filter(student == 1) %>% 
-  select(-student) %>% 
-  mutate(
-    post = case_when(
-      syear == 2016 ~ 0,
-      syear == 2017 ~ 1,
-      .default = NA
-    ),
-    eligible = case_when(
-      parental_income > log(30000) ~ 0,
-      parental_income <= log(30000) ~ 1,
-      .default = NA
-    )
-  ) %>% 
-  select(-syear, -age) %>% 
-  arrange(pid, post) %>% 
-  drop_na()
+  filter(syear >= (2016 - 5) & syear <= (2016 + 5)) %>% 
+  filter(pid %in% c(treatment_group, control_group)) %>% 
+  mutate(treatment = 
+           case_when(
+             pid %in% treatment_group ~ 1,
+             pid %in% control_group ~ 0,
+             .default = NA
+           )) %>% 
+  filter(!is.na(treatment)) %>% 
+  group_by(syear, treatment) %>% 
+  summarize(
+    coresidence = mean(coresidence, na.rm = TRUE)
+    ) %>% 
+  ungroup()
+
+ggplot(trends, aes(x = syear, y = coresidence, color = factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(
+    values = c("darkred", "darkblue"),
+    labels = c("Not eligible", "Eligible")
+  ) +
+  labs(
+    x = "",
+    y = "Mean coresidence",
+    color = ""
+  ) +
+  ylim(0, 1) +
+  theme_minimal()
+  
 ```
 
 Add pre and post trends
