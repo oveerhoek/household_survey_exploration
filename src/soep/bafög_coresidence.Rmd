@@ -4,11 +4,10 @@ output: html_notebook
 params:
   pre_year: 2016
   post_year: 2017
+  reform_year: 2016
   reform_month: 8
   bafog_threshold: 30000
 ---
-
-## R setup
 
 ```{r echo=F, results='hide'}
 library(tidyverse)
@@ -19,43 +18,11 @@ library(scales)
 df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
 ```
 
-## Data
-
-### General summary statistics
-
-```{r}
-df %>%
-  rename(
-    `Income (log Euro)` = income,
-    `Parental co-residence (dummy)` = coresidence,
-    `BAföG grant received (Euro)` = grant,
-    `Student status (dummy)` = student,
-    `Age (years)` = age,
-    `Parental income (log Euro)` = parental_income,
-    `Years of schooling (years)` = educ
-  ) %>% 
-  datasummary(
-    formula = All(.) ~ N + PercentMissing + Mean + P25 + P50 + P75 + SD + Min + Max,
-    data = .
-  )
-```
-
-### Eligibility for BAföG
-
-```{r}
-df %>% 
-  mutate(parental_income_bin = round(parental_income)) %>% 
-  filter(age >= 18 & age < 23 & student == 1) %>% 
-  group_by(parental_income_bin) %>% 
-  summarize(
-    N = n(),
-    grant = mean(grant, na.rm = TRUE)
-  ) %>% 
-  ungroup() %>% 
-  knitr::kable()
-```
+# Moving out for a better career: Parental co-residence and later earnings
 
 ## Naive model
+
+In the naive model, I explain a person's earnings at the age of 30 with the number of years that they resided with their parents from age 18 to age 23. 
 
 $$
 \log(\text{income})_{i} = \beta_0 + \beta_1 \,\text{coresidence}_{i} + \beta_2 X_{i} + \epsilon_{i}
@@ -99,6 +66,10 @@ modelsummary(model_naive,
             statistic = "({std.error})",
             stars = c('*' = .10, '**' = .05, '***' = .01))
 ```
+
+
+
+## Effect of BAföG reforms on parental co-residence
 
 ## Simple difference-in-differences
 
@@ -149,8 +120,6 @@ df_simple_did <- df %>%
 ```
 
 ```{r}
-
-
 estimation <- feols(coresidence ~ eligible * post, data = df_simple_did)
 
 modelsummary(estimation,
