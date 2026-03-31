@@ -9,7 +9,7 @@ src/opencode.json
 .venv
 data-synthetic
 src/__pycache__
-
+src/soep/tinytable_assets
 
 # History files
 .Rhistory
