@@ -22,7 +22,7 @@ df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
 
 ## Naive model
 
-In the naive model, I explain a person's earnings at the age of 30 with the number of years that they resided with their parents from age 18 to age 23. 
+In the naive model, I explain a person's earnings at the age of 30 with the number of years that they resided with their parents from age 18 to age 23.
 
 $$
 \log(\text{income})_{i} = \beta_0 + \beta_1 \,\text{coresidence}_{i} + \beta_2 X_{i} + \epsilon_{i}
@@ -61,19 +61,19 @@ df_naive <- df %>%
 
 ```{r}
 model_naive <- lm(income ~ coresidence, data = df_naive)
-modelsummary(model_naive,
-             estimate  = "{estimate}{stars}",
-            statistic = "({std.error})",
-            stars = c('*' = .10, '**' = .05, '***' = .01))
+modelsummary(
+  list("log(income)" = model_naive),
+  estimate  = "{estimate}{stars}",
+  statistic = "({std.error})",
+  stars = c('*' = .10, '**' = .05, '***' = .01)
+)
 ```
-
-
 
 ## Effect of BAföG reforms on parental co-residence
 
 ## Simple difference-in-differences
 
-I will use a simple DiD analysis to estimate the effect of the 2016 BAföG reform on parental co-residence from the age of 18 to 23. The treatment group consists of students who are eligible for BAföG, because their parents earn below the income threshold. The control group consists of students who are not eligible for BAföG, because their parents earn above the income threshold.
+I use a DiD analysis to estimate the effect of the `r params$reform_year` BAföG reform on parental co-residence from the age of 18 to 23. The treatment group consists of students who are eligible for BAföG, because their parents earn below the income threshold (`r params$bafog_threshold`). The control group consists of students who are not eligible for BAföG, because their parents earn above the income threshold.
 
 $$
 \text{coresidence}_{i} = \alpha + \beta_1 \text{eligible}_i + \beta_2 \text{post}_t 
