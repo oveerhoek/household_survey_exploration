@@ -91,6 +91,10 @@ coresidence <- pbrutto %>%
   transmute(
     pid,
     syear,
+    survey_month = case_when(
+      imonth < 0 ~ NA,
+      .default = imonth
+    ),
     coresidence = case_when(
       stell_h %in% c(20, 21) ~ 1,
       stell_h == 99 ~ NA,
@@ -197,6 +201,7 @@ df <-
   transmute(
     pid = as.numeric(pid),
     syear = as.numeric(syear),
+    survey_month = as.numeric(survey_month),
     income = as.numeric(income), # Y: outcome variable
     coresidence = as.numeric(coresidence), # X: independent variable
     grant = as.numeric(grant), # IV
