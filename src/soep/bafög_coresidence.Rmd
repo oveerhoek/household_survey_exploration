@@ -18,8 +18,6 @@ library(scales)
 df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
 ```
 
-# Moving out for a better career: Parental co-residence and later earnings
-
 ## Naive model
 
 In the naive model, I explain a person's earnings at the age of 30 with the number of years that they resided with their parents from age 18 to age 23.
