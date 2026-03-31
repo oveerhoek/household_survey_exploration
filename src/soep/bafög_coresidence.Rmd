@@ -1,11 +1,16 @@
 ---
 title: "Moving out for a better career: Parental co-residence and later earnings"
 output: html_notebook
+params:
+  pre_year: 2016
+  post_year: 2017
+  reform_month: 8
+  bafog_threshold: 30000
 ---
 
 ## R setup
 
-```{r}
+```{r echo=F, results='hide'}
 library(tidyverse)
 library(modelsummary)
 library(fixest)
@@ -19,18 +24,20 @@ df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
 ### General summary statistics
 
 ```{r}
-datasummary(
-  formula = 
-    (`Income (log Euro)` = income) + 
-    (`Parental co-residence (dummy)` = coresidence) +
-    (`BAföG grant received (Euro)` = grant) +
-    (`Student status (dummy)` = student) +
-    (`Age (years)` = age) +
-    (`Parental income (log Euro)` = parental_income) +
-    (`Years of schooling (years)` = educ)
-    ~ N + PercentMissing + Mean + P25 + P50 + P75 + SD + Min + Max,
-  data = df
-)
+df %>%
+  rename(
+    `Income (log Euro)` = income,
+    `Parental co-residence (dummy)` = coresidence,
+    `BAföG grant received (Euro)` = grant,
+    `Student status (dummy)` = student,
+    `Age (years)` = age,
+    `Parental income (log Euro)` = parental_income,
+    `Years of schooling (years)` = educ
+  ) %>% 
+  datasummary(
+    formula = All(.) ~ N + PercentMissing + Mean + P25 + P50 + P75 + SD + Min + Max,
+    data = .
+  )
 ```
 
 ### Eligibility for BAföG
@@ -44,7 +51,8 @@ df %>%
     N = n(),
     grant = mean(grant, na.rm = TRUE)
   ) %>% 
-  ungroup() 
+  ungroup() %>% 
+  knitr::kable()
 ```
 
 ## Naive model
@@ -61,7 +69,7 @@ where:
 
 -   $\text{coresidence}$ is the number of years the individual lived with their parents from age 18 to age 23;
 
--   $X$ is a vector of control variables.
+-   $X$ is a vector of control variables, containing at least years of schooling and potential experience (Mincer equation)
 
 -   **Comment Robbert: Mensen die thuiswonen studeren sneller af**
 
@@ -72,6 +80,25 @@ where:
 -   **André: Gerritsen Paper**
 
 $\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
+
+```{r}
+df_naive <- df %>% 
+  filter(age >= 18 & age < 23) %>% 
+  group_by(pid) %>% 
+  summarize(coresidence = sum(coresidence, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  full_join(select(filter(df, age == 30), pid, income)) %>% 
+  drop_na()
+
+```
+
+```{r}
+model_naive <- lm(income ~ coresidence, data = df_naive)
+modelsummary(model_naive,
+             estimate  = "{estimate}{stars}",
+            statistic = "({std.error})",
+            stars = c('*' = .10, '**' = .05, '***' = .01))
+```
 
 ## Simple difference-in-differences
 
@@ -99,19 +126,19 @@ where:
 ```{r echo=F, results='hide'}
 df_simple_did <- df %>% 
   select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
-  filter(syear %in% c(2015, 2016)) %>% 
+  filter(syear %in% c(params$pre_year, params$post_year)) %>% 
   filter(age >= 18 & age <= 23) %>% 
   filter(student == 1) %>% 
   select(-student) %>% 
   mutate(
     post = case_when(
-      syear == 2015 ~ 0,
-      syear == 2016 ~ 1,
+      syear == params$pre_year & smonth < params$reform_month ~ 0,
+      syear == params$post_year ~ 1,
       .default = NA
     ),
     eligible = case_when(
-      parental_income > log(30000) ~ 0,
-      parental_income <= log(30000) ~ 1,
+      parental_income > log(params$parental_income) ~ 0,
+      parental_income <= log(params$parental_income) ~ 1,
       .default = NA
     )
   ) %>% 
@@ -129,7 +156,7 @@ estimation <- feols(coresidence ~ eligible * post, data = df_simple_did)
 modelsummary(estimation,
              estimate  = "{estimate}{stars}",
             statistic = "({std.error})",
-            stars = c('*' = .10, '**' = .05, '***' = .01),)
+            stars = c('*' = .10, '**' = .05, '***' = .01))
 ```
 
 **Eligibility: fuzzy RD based on family income**
