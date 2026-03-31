@@ -9,6 +9,7 @@ output: html_notebook
 library(tidyverse)
 library(modelsummary)
 library(fixest)
+library(scales)
 
 df <- read_csv("../../tmp/soep/bafög_coresidence.csv", show_col_types = FALSE)
 ```
@@ -98,14 +99,14 @@ where:
 ```{r echo=F, results='hide'}
 df_simple_did <- df %>% 
   select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
-  filter(syear %in% c(2016, 2017)) %>% 
+  filter(syear %in% c(2015, 2016)) %>% 
   filter(age >= 18 & age <= 23) %>% 
   filter(student == 1) %>% 
   select(-student) %>% 
   mutate(
     post = case_when(
-      syear == 2016 ~ 0,
-      syear == 2017 ~ 1,
+      syear == 2015 ~ 0,
+      syear == 2016 ~ 1,
       .default = NA
     ),
     eligible = case_when(
@@ -183,28 +184,38 @@ trends <- df %>%
   filter(!is.na(treatment)) %>% 
   group_by(syear, treatment) %>% 
   summarize(
-    coresidence = mean(coresidence, na.rm = TRUE)
+    mean_core = mean(coresidence, na.rm = TRUE),
+    sd_core   = sd(coresidence, na.rm = TRUE),
+    n         = sum(!is.na(coresidence)),
+    se_core   = sd_core / sqrt(n),
+    ci_low    = mean_core - 1.96 * se_core,
+    ci_high   = mean_core + 1.96 * se_core
     ) %>% 
   ungroup()
 
-ggplot(trends, aes(x = syear, y = coresidence, color = factor(treatment))) +
+ggplot(trends, aes(x = syear, y = mean_core, color = factor(treatment))) +
   geom_line() +
   geom_point() +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.15) +
+  annotate("rect",
+           xmin = 2015, xmax = 2016,
+           ymin = -Inf, ymax = Inf,
+           alpha = 0.2, fill = "lightblue") +
   scale_color_manual(
     values = c("darkred", "darkblue"),
-    labels = c("Not eligible", "Eligible")
+    labels = c("Control: Not eligible", "Treatment: Eligible")
   ) +
+  scale_x_continuous(breaks = seq(min(df$syear), max(df$syear), by = 1), minor_breaks = NULL) +
   labs(
-    x = "",
-    y = "Mean coresidence",
-    color = ""
+    title = "Pre- and post-reform trends in co-residence (2016 BAföG reform)",
+    x = "Time",
+    y = "Parental co-residence (%)",
+    color = "Eligibility for BAföG in 2016"
   ) +
-  ylim(0, 1) +
+  scale_y_continuous(limits = c(0, 1), labels = percent) +
   theme_minimal()
   
 ```
-
-Add pre and post trends
 
 Think of heterogeneity
 
