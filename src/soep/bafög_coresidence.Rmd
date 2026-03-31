@@ -48,30 +48,38 @@ $\hat{\beta}_1$ is likely biased, because parental co-residence during college y
 
 ```{r}
 df_naive <- df %>% 
-  filter(age >= 18 & age < 23) %>% 
+  # filter(age >= 18 & age < 30) %>% 
+  filter(age >= 18 & age < 23) %>%
   group_by(pid) %>% 
-  summarize(coresidence = sum(coresidence, na.rm = TRUE)) %>% 
+  summarize(coresidence = sum(coresidence, na.rm = TRUE), coresidence_sq = coresidence ** 2) %>% 
   ungroup() %>% 
   full_join(select(filter(df, age == 30), pid, income, age, educ)) %>% 
-  mutate(
-    experience = pmax(0, age - educ - 6),
-    experience_sq = experience ^ 2
-  ) %>% 
+  # mutate(
+  #   experience = pmax(0, age - educ - 6),
+  #   experience_sq = experience ^ 2
+  # ) %>% 
   drop_na()
 
 ```
 
 ```{r}
-model_naive <- lm(income ~ coresidence, data = df_naive)
-model_naive_mincer <- lm(
-  income ~ coresidence + educ + experience + experience_sq,
-  data = df_naive
+naive_models <- list(
+  "(1) log(income)" = lm(income ~ coresidence, data = df_naive),
+  "(2) log(income)" = lm(income ~ coresidence + coresidence_sq, data = df_naive),
+  "(3) log(income)" = lm(income ~ coresidence + coresidence_sq + educ, data = df_naive)
 )
+
 modelsummary(
-  list(
-    "Naive" = model_naive,
-    "Naive + Mincer controls" = model_naive_mincer
+  models = naive_models,
+  coef_map = c(
+    income = "log(income)",
+    coresidence = "co-residence",
+    coresidence_sq = "(co-residence)^2",
+    educ = "years of schooling",
+    experience = "work experience",
+    experience_sq = "(work experience)^2"
   ),
+  gof_omit = "AIC|BIC|Log|RMSE",
   estimate  = "{estimate}{stars}",
   statistic = "({std.error})",
   stars = c('*' = .10, '**' = .05, '***' = .01)
@@ -105,7 +113,7 @@ where:
 
 ```{r echo=F, results='hide'}
 df_simple_did <- df %>% 
-  select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
+  select(pid, syear, smonth, age, student, coresidence, grant, parental_income) %>% 
   filter(syear %in% c(params$pre_year, params$post_year)) %>% 
   filter(age >= 18 & age <= 23) %>% 
   filter(student == 1) %>% 
@@ -117,12 +125,12 @@ df_simple_did <- df %>%
       .default = NA
     ),
     eligible = case_when(
-      parental_income > log(params$parental_income) ~ 0,
-      parental_income <= log(params$parental_income) ~ 1,
+      parental_income > log(params$bafog_threshold) ~ 0,
+      parental_income <= log(params$bafog_threshold) ~ 1,
       .default = NA
     )
   ) %>% 
-  select(-syear, -age) %>% 
+  select(-syear, -smonth, -age) %>% 
   arrange(pid, post) %>% 
   drop_na()
 
