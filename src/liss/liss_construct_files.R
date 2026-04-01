@@ -192,38 +192,38 @@ housing <- load_files("cd.*dta") %>%
 
 write_rds(housing, paste0(PATH_LISS_TMP_DATA, "liss_housing.Rds"))
 
-coresidence <- load_files("cf.*dta") %>%
-  select(
-    nomem_encr,
-    matches("^cf\\d{2}[a-z]017$"),
-    matches("^cf\\d{2}[a-z]451$")
-  ) %>%
-  rename_with(
-    ~ paste0("coresidence", 2000 + as.integer(substr(.x, 3, 4))),
-    -nomem_encr
-  ) %>%
-  group_by(nomem_encr) %>%
-  summarise(
-    across(starts_with("coresidence"),
-           ~ dplyr::first(na.omit(.x)))
-  ) %>%
-  ungroup() %>%
-  pivot_longer(
-    names_to = "year",
-    values_to = "coresidence",
-    cols = starts_with("coresidence"),
-    names_prefix = "coresidence"
-  ) %>%
-  transmute(
-    nomem_encr,
-    year = as.numeric(year),
-    coresidence = case_when(
-      coresidence == 4 ~ 1,
-      .default = 0
-    )
-  )
-
-write_rds(coresidence, paste0(PATH_LISS_TMP_DATA, "liss_coresidence.Rds"))
+# coresidence <- load_files("cf.*dta") %>%
+#   select(
+#     nomem_encr,
+#     matches("^cf\\d{2}[a-z]017$"),
+#     matches("^cf\\d{2}[a-z]451$")
+#   ) %>%
+#   rename_with(
+#     ~ paste0("coresidence", 2000 + as.integer(substr(.x, 3, 4))),
+#     -nomem_encr
+#   ) %>%
+#   group_by(nomem_encr) %>%
+#   summarise(
+#     across(starts_with("coresidence"),
+#            ~ dplyr::first(na.omit(.x)))
+#   ) %>%
+#   ungroup() %>%
+#   pivot_longer(
+#     names_to = "year",
+#     values_to = "coresidence",
+#     cols = starts_with("coresidence"),
+#     names_prefix = "coresidence"
+#   ) %>%
+#   transmute(
+#     nomem_encr,
+#     year = as.numeric(year),
+#     coresidence = case_when(
+#       coresidence == 4 ~ 1,
+#       .default = 0
+#     )
+#   )
+# 
+# write_rds(coresidence, paste0(PATH_LISS_TMP_DATA, "liss_coresidence.Rds"))
 
 work_schooling <- load_files("cw.*dta") %>%
   select(
