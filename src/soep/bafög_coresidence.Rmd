@@ -97,10 +97,6 @@ $$
 + \delta \left( \text{eligible}_i \times \text{post}_t \right) + \varepsilon_{i}
 $$
 
-**"stacked DID"**
-
-**Robbert: Theorie specifieker, hoe shcerper je het verband hebt, hoe beter je**
-
 where:
 
 -   $i$ is the individual;
@@ -144,8 +140,6 @@ modelsummary(estimation,
             statistic = "({std.error})",
             stars = c('*' = .10, '**' = .05, '***' = .01))
 ```
-
-**Eligibility: fuzzy RD based on family income**
 
 ```{r}
 df_simple_did %>% 
@@ -230,6 +224,62 @@ ggplot(trends, aes(x = syear, y = mean_core, color = factor(treatment))) +
   
 ```
 
-Think of heterogeneity
+# Appendix
 
-Look at geo data
+## To do 
+
+-   Construct a stacked difference-in-differences
+
+-   Expand on your theory: the clearer you make the relationship, the better you can estimate it (especially specificity tests and extensions)
+
+-   Add a fuzzy RD-design for parental income
+
+-   People who live at home may graduate more quickly, look into this
+
+-   Look at the change in income from age 23 to age 30 instead of the level at age 30
+
+-   Consider time preferences: SOEP includes this as self-assessed willingness to delay gratification
+
+-   Think of heterogeneity
+
+-   Look at geographic data, if possible
+
+## Parental co-residence over time
+
+```{r}
+df %>% 
+  select(pid, syear, age, student, coresidence, grant, parental_income) %>% 
+  filter(age == 20) %>% 
+  # filter(age >= 18 & age < 23) %>% 
+  group_by(syear) %>% 
+  summarize(
+    mean_core = mean(coresidence, na.rm = TRUE),
+    sd_core   = sd(coresidence, na.rm = TRUE),
+    n         = sum(!is.na(coresidence)),
+    se_core   = sd_core / sqrt(n),
+    ci_low    = mean_core - 1.96 * se_core,
+    ci_high   = mean_core + 1.96 * se_core
+    ) %>% 
+  ungroup() %>% 
+  
+  ggplot(aes(x = syear, y = mean_core)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.15) +
+  annotate("rect",
+           xmin = params$reform_year - 1, xmax = params$reform_year,
+           ymin = -Inf, ymax = Inf,
+           alpha = 0.2, fill = "lightblue") +
+  scale_color_manual(
+    values = c("darkred", "darkblue"),
+    labels = c("Control: Not eligible", "Treatment: Eligible")
+  ) +
+  scale_x_continuous(breaks = seq(min(df$syear), max(df$syear), by = 2), minor_breaks = NULL) +
+  labs(
+    title = "Trends in co-residence",
+    x = "Time",
+    y = "Parental co-residence (%)"
+  ) +
+  scale_y_continuous(limits = c(0, 1), labels = percent) +
+  theme_minimal()
+```
