@@ -1,18 +1,192 @@
 ---
-title: "R Notebook"
+title: "Moving out for a better career: Parental co-residence and later earnings"
 output: html_notebook
+params:
+  pre_year: 2016
+  post_year: 2017
+  reform_year: 2015
+  reform_month: 9
+  bafog_threshold: 30000
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
-
 ```{r}
-plot(cars)
+library(tidyverse)
+library(modelsummary)
+
+PATH_LISS_DATA <- "../../data/liss/"
+PATH_LISS_TMP_DATA <- "../../tmp/liss/"
+
+highest_educ <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_highest_educ.Rds")) %>% 
+  filter(year >= 2018) %>% 
+  arrange(nomem_encr, year) %>% 
+  group_by(nomem_encr) %>% 
+  summarize(
+    highest_educ = dplyr::last(highest_educ)
+  ) %>% 
+  ungroup()
+
+df <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_core.Rds")) %>%
+  transmute(
+    pid = nomem_encr,
+    wave = zoo::as.Date(zoo::as.yearmon(as.character(wave), "%Y%m")),
+    income_monthly = nettoink_f,
+    positie = haven::zap_labels(positie),
+    coresidence = case_when(
+      positie == 5 ~ 1,                                # living with parents
+      positie %in% c(1, 2, 3, 4, 6, 7) ~ 0,             # not living with parents
+      positie == 9 ~ NA_real_,                          # missing/unknown
+      .default = NA_real_
+    ),
+    birth_year = gebjaar,
+    student = case_when(
+      belbezig == 7 ~ 1,                               # enrolled as student
+      .default = 0
+    ),
+    age = leeftijd
+    # sex = as_factor(geslacht),
+  )
+
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+## Naive model
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+In the naive model, I explain a person's earnings at the age of 30 with the number of years that they resided with their parents from age 18 to age 23.
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+where:
+
+-   $i$ is the individual;
+
+-   $\text{income}$ is the income earned by individual $i$ in log Euro at the age of 30;
+
+-   $\text{coresidence}$ is the number of years the individual lived with their parents from age 18 to age 23;
+
+-   $X$ is a vector of control variables, containing at least years of schooling and potential experience (Mincer equation)
+
+$\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
+
+```{r}
+later_income <- df %>% 
+  filter(age == 30) %>% 
+  select(pid, wave, income_monthly) %>% 
+  group_by(pid) %>% 
+  summarize(n_months = n(), income = log(sum(income_monthly, na.rm = TRUE) + 1)) %>% 
+  ungroup() %>% 
+  filter(n_months == 12) %>% 
+  select(-n_months)
+
+
+df_naive <- df %>% 
+  filter(age >= 18 & age < 23) %>%
+  group_by(pid) %>% 
+  summarize(n_months = n(), coresidence = sum(coresidence, na.rm = TRUE) / 12, coresidence_sq = coresidence ** 2) %>% 
+  ungroup() %>% 
+  drop_na() %>% 
+  full_join(later_income) %>% 
+  drop_na() 
+
+rm(later_income)
+
+```
+
+```{r}
+naive_models <- list(
+  "(1) log(income)" = lm(income ~ coresidence, data = df_naive),
+  "(2) log(income)" = lm(income ~ coresidence + coresidence_sq, data = df_naive)
+)
+
+modelsummary(
+  models = naive_models,
+  coef_map = c(
+    income = "log(income)",
+    coresidence = "co-residence",
+    coresidence_sq = "(co-residence)^2"
+  ),
+  gof_omit = "AIC|BIC|Log|RMSE",
+  estimate  = "{estimate}{stars}",
+  statistic = "({std.error})",
+  stars = c('*' = .10, '**' = .05, '***' = .01)
+)
+```
+
+
+```{r}
+df %>% 
+  filter(age >= 18 & age < 23) %>% 
+  group_by(wave) %>% 
+  summarize(
+    coresidence = mean(coresidence, na.rm = TRUE),
+    student = mean(student, na.rm = TRUE)
+  ) %>% 
+  ungroup() %>% 
+  kableExtra::kable()
+```
+
+```{r}
+# random_students <- df %>% 
+#   filter(year(wave) == 2015 & student == 1) %>% 
+#   sample_n(5) %>% 
+#   pull(nomem_encr)
+# 
+# ggplot(df %>% filter(nomem_encr %in% random_students), aes(x = wave, y = coresidence)) +
+#   geom_line() +
+#   geom_point() +
+#   facet_wrap(~nomem_encr)
+```
+
+
+```{r}
+# ------------------------------------------------------------
+# Identify respondents who are observed in all specified waves
+# and belong to a given birth cohort.
+#
+# This is used to construct balanced panels around key
+# educational transition periods.
+# ------------------------------------------------------------
+find_respondents_in_waves <- function(panel, birth_year, waves) {
+  # TODO: Check continous appearance in waves
+  return(
+    panel %>% 
+      # Restrict to a specific birth year
+      filter(birth_year == .env$birth_year) %>% 
+      # Keep only the waves of interest
+      filter(wave %in% as.Date(waves)) %>% 
+      # One record per person-wave
+      distinct(nomem_encr, wave) %>% 
+      # Count how many of the required waves are observed
+      count(nomem_encr) %>% 
+      # Keep respondents observed in all waves
+      filter(n == length(waves)) %>% 
+      # Return respondent identifiers
+      pull(nomem_encr)
+  )
+}
+
+START_PRE_REFORM <- "2014-09-01"
+END_PRE_REFORM <- "2021-09-01"
+
+# ------------------------------------------------------------
+# Identify students from the pre-reform cohort:
+# born in 1997 and observed at the start and end of the
+# relevant study period.
+# ------------------------------------------------------------
+respondents_pre <- find_respondents_in_waves(
+  panel,
+  birth_year = 1997,
+  waves = c(START_PRE_REFORM, END_PRE_REFORM)
+)
+
+START_POST_REFORM <- "2015-09-01"
+END_POST_REFORM <- "2020-09-01"
+
+# ------------------------------------------------------------
+# Identify students from the post-reform cohort:
+# born in 1998 and observed at the start and end of the
+# relevant study period.
+# ------------------------------------------------------------
+respondents_post <- find_respondents_in_waves(
+  panel,
+  birth_year = 1998,
+  waves = c(START_POST_REFORM, END_POST_REFORM)
+)
+```
+
