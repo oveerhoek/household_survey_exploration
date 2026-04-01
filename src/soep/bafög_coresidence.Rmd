@@ -36,14 +36,6 @@ where:
 
 -   $X$ is a vector of control variables, containing at least years of schooling and potential experience (Mincer equation)
 
--   **Comment Robbert: Mensen die thuiswonen studeren sneller af**
-
-    -   **Toevoeging André: Kijk naar time preferences**
-
-    -   Traject / annual change i.p.v. level
-
--   **André: Gerritsen Paper**
-
 $\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
 
 ```{r}
@@ -226,7 +218,7 @@ ggplot(trends, aes(x = syear, y = mean_core, color = factor(treatment))) +
 
 # Appendix
 
-## To do 
+## To do
 
 -   Construct a stacked difference-in-differences
 
