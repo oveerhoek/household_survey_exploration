@@ -147,6 +147,24 @@ find_respondents_in_waves <- function(df, birth_year, waves) {
   )
 }
 
+min_year <- year(as_date(params$pre_window_start)) - 5
+max_year <- year(as_date(params$pre_window_start)) + 5
+
+respondents <- list()
+
+for (year in min_year:max_year) {
+  respondents[[as.character(year)]] <- find_respondents_in_waves(
+    df,
+    birth_year = year - 18,
+    waves = c(
+      paste0(year, "-09-01"),
+      paste0(year + 5, "-09-01")
+    )
+  ) 
+}
+  
+rm(min_year, max_year)
+
 # TODO: Select based on student status instead of birth year
 
 respondents_pre <- find_respondents_in_waves(
@@ -187,16 +205,123 @@ df_did <- df %>%
   ) %>% 
   # Keep only treated cohorts and the desired time window
   filter(group %in% c(0, 1)) %>% 
-  filter(month_relative >= 0 & month_relative <= 130) %>% 
+  filter(month_relative >= 0 & month_relative <= 60) %>% 
   select(-wave) %>% 
   transmute(
-    nomem_encr,
+    pid,
     month_relative,
+    quarter_relative,
+    year_relative,
     group,
     student,
     coresidence,
-    income = nettoink_f
+    income_monthly,
+    wo,
+    hbo
   ) %>% 
-  arrange(nomem_encr, month_relative)
+  arrange(pid, month_relative)
 ```
+```{r}
+df_did_monthly <- df_did %>% 
+  filter(wo == 1 | hbo == 1) %>% 
+  group_by(month_relative, group) %>% 
+  summarize(
+    mean_core = mean(coresidence, na.rm = TRUE),
+    sd_core   = sd(coresidence, na.rm = TRUE),
+    n         = sum(!is.na(coresidence)),
+    se_core   = sd_core / sqrt(n),
+    ci_low    = mean_core - 1.96 * se_core,
+    ci_high   = mean_core + 1.96 * se_core
+  ) %>% 
+  ungroup()
+
+df_did_quarterly <- df_did %>% 
+  filter(wo == 1 | hbo == 1) %>% 
+  group_by(quarter_relative, group) %>% 
+  summarize(
+    mean_core = mean(coresidence, na.rm = TRUE),
+    sd_core   = sd(coresidence, na.rm = TRUE),
+    n         = sum(!is.na(coresidence)),
+    se_core   = sd_core / sqrt(n),
+    ci_low    = mean_core - 1.96 * se_core,
+    ci_high   = mean_core + 1.96 * se_core
+  ) %>% 
+  ungroup()
+
+df_did_yearly <- df_did %>% 
+  filter(wo == 1 | hbo == 1) %>% 
+  group_by(year_relative, group) %>% 
+  summarize(
+    mean_core = mean(coresidence, na.rm = TRUE),
+    sd_core   = sd(coresidence, na.rm = TRUE),
+    n         = sum(!is.na(coresidence)),
+    se_core   = sd_core / sqrt(n),
+    ci_low    = mean_core - 1.96 * se_core,
+    ci_high   = mean_core + 1.96 * se_core
+  ) %>% 
+  ungroup()
+```
+
+```{r}
+
+```
+
+
+```{r}
+# df_did_monthly %>% 
+#   ggplot(aes(x = month_relative, y = mean_core, color = factor(group))) +
+#   geom_line(linewidth = 1.25) +
+#   # geom_point() +
+#   scale_color_manual(
+#     values = c("red", "orange"),
+#     labels = c("Control: Pre-reform cohort", "Treatment: Post-reform cohort")
+#   ) +
+#   labs(
+#     title = "Trends in co-residence (2016 Dutch study grant reform)",
+#     x = "Time",
+#     y = "Parental co-residence (%)",
+#     color = "Cohort"
+#   ) +
+#   scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+#   theme_minimal()
+
+df_did_quarterly %>% 
+  ggplot(aes(x = quarter_relative, y = mean_core, color = factor(group))) +
+  geom_line(linewidth = 1.25) +
+  # geom_point() +
+  scale_color_manual(
+    values = c("red", "orange"),
+    labels = c("Control: Pre-reform cohort", "Treatment: Post-reform cohort")
+  ) +
+  labs(
+    title = "Trends in co-residence (2016 Dutch study grant reform)",
+    x = "Time (Quarters)",
+    y = "Parental co-residence (%)",
+    color = "Cohort"
+  ) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal()
+
+# df_did_yearly %>% 
+#   ggplot(aes(x = year_relative, y = mean_core, color = factor(group))) +
+#   geom_line(linewidth = 1.25) +
+#   # geom_point() +
+#   scale_color_manual(
+#     values = c("red", "orange"),
+#     labels = c("Control: Pre-reform cohort", "Treatment: Post-reform cohort")
+#   ) +
+#   labs(
+#     title = "Trends in co-residence (2016 Dutch study grant reform)",
+#     x = "Time",
+#     y = "Parental co-residence (%)",
+#     color = "Cohort"
+#   ) +
+#   scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+#   theme_minimal()
+```
+```{r}
+# Pre and post trends
+
+```
+
 
