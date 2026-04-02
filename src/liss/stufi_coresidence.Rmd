@@ -2,26 +2,32 @@
 title: "Moving out for a better career: Parental co-residence and later earnings"
 output: html_notebook
 params:
-  pre_year: 2016
-  post_year: 2017
-  reform_year: 2015
-  reform_month: 9
-  bafog_threshold: 30000
+  pre_window_start: "2014-09-01"
+  pre_window_end: "2019-09-01"
+  pre_birth_year: 1997
+  
+  post_window_start: "2015-09-01"
+  post_window_end: "2020-09-01"
+  post_birth_year: 1998
 ---
 
 ```{r}
 library(tidyverse)
 library(modelsummary)
+library(lubridate)
 
 PATH_LISS_DATA <- "../../data/liss/"
 PATH_LISS_TMP_DATA <- "../../tmp/liss/"
 
 highest_educ <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_highest_educ.Rds")) %>% 
-  filter(year >= 2018) %>% 
-  arrange(nomem_encr, year) %>% 
-  group_by(nomem_encr) %>% 
+  transmute(
+    pid = nomem_encr,
+    highest_educ = haven::zap_labels(highest_educ)
+  ) %>% 
+  group_by(pid) %>%
   summarize(
-    highest_educ = dplyr::last(highest_educ)
+    wo  = as.numeric(any(highest_educ == 26, na.rm = TRUE)),                     # university degree
+    hbo = as.numeric(any(highest_educ == 20, na.rm = TRUE) & !any(highest_educ == 26, na.rm = TRUE))
   ) %>% 
   ungroup()
 
@@ -44,7 +50,10 @@ df <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_core.Rds")) %>%
     ),
     age = leeftijd
     # sex = as_factor(geslacht),
-  )
+  ) %>% 
+  full_join(highest_educ)
+
+rm(highest_educ)
 
 ```
 
@@ -74,6 +83,8 @@ later_income <- df %>%
   filter(n_months == 12) %>% 
   select(-n_months)
 
+later_educ <- df %>% 
+  select(pid, wo, hbo)
 
 df_naive <- df %>% 
   filter(age >= 18 & age < 23) %>%
@@ -82,16 +93,20 @@ df_naive <- df %>%
   ungroup() %>% 
   drop_na() %>% 
   full_join(later_income) %>% 
+  full_join(later_educ) %>% 
   drop_na() 
+  
 
 rm(later_income)
+rm(later_educ)
 
 ```
 
 ```{r}
 naive_models <- list(
   "(1) log(income)" = lm(income ~ coresidence, data = df_naive),
-  "(2) log(income)" = lm(income ~ coresidence + coresidence_sq, data = df_naive)
+  "(2) log(income)" = lm(income ~ coresidence + coresidence_sq, data = df_naive),
+  "(3) log(income)" = lm(income ~ coresidence + coresidence_sq + hbo + wo, data = df_naive)
 )
 
 modelsummary(
@@ -99,7 +114,9 @@ modelsummary(
   coef_map = c(
     income = "log(income)",
     coresidence = "co-residence",
-    coresidence_sq = "(co-residence)^2"
+    coresidence_sq = "(co-residence)^2",
+    hbo = "hbo (university of applied sciences)",
+    wo = "wo (research university)"
   ),
   gof_omit = "AIC|BIC|Log|RMSE",
   estimate  = "{estimate}{stars}",
@@ -109,84 +126,77 @@ modelsummary(
 ```
 
 
-```{r}
-df %>% 
-  filter(age >= 18 & age < 23) %>% 
-  group_by(wave) %>% 
-  summarize(
-    coresidence = mean(coresidence, na.rm = TRUE),
-    student = mean(student, na.rm = TRUE)
-  ) %>% 
-  ungroup() %>% 
-  kableExtra::kable()
-```
 
 ```{r}
-# random_students <- df %>% 
-#   filter(year(wave) == 2015 & student == 1) %>% 
-#   sample_n(5) %>% 
-#   pull(nomem_encr)
-# 
-# ggplot(df %>% filter(nomem_encr %in% random_students), aes(x = wave, y = coresidence)) +
-#   geom_line() +
-#   geom_point() +
-#   facet_wrap(~nomem_encr)
-```
-
-
-```{r}
-# ------------------------------------------------------------
-# Identify respondents who are observed in all specified waves
-# and belong to a given birth cohort.
-#
-# This is used to construct balanced panels around key
-# educational transition periods.
-# ------------------------------------------------------------
-find_respondents_in_waves <- function(panel, birth_year, waves) {
+find_respondents_in_waves <- function(df, birth_year, waves) {
   # TODO: Check continous appearance in waves
   return(
-    panel %>% 
+    df %>% 
       # Restrict to a specific birth year
       filter(birth_year == .env$birth_year) %>% 
       # Keep only the waves of interest
       filter(wave %in% as.Date(waves)) %>% 
       # One record per person-wave
-      distinct(nomem_encr, wave) %>% 
+      distinct(pid, wave) %>% 
       # Count how many of the required waves are observed
-      count(nomem_encr) %>% 
+      count(pid) %>% 
       # Keep respondents observed in all waves
       filter(n == length(waves)) %>% 
       # Return respondent identifiers
-      pull(nomem_encr)
+      pull(pid)
   )
 }
 
-START_PRE_REFORM <- "2014-09-01"
-END_PRE_REFORM <- "2021-09-01"
+# TODO: Select based on student status instead of birth year
 
-# ------------------------------------------------------------
-# Identify students from the pre-reform cohort:
-# born in 1997 and observed at the start and end of the
-# relevant study period.
-# ------------------------------------------------------------
 respondents_pre <- find_respondents_in_waves(
-  panel,
-  birth_year = 1997,
-  waves = c(START_PRE_REFORM, END_PRE_REFORM)
+  df,
+  birth_year = params$pre_birth_year,
+  waves = c(params$pre_window_start, params$pre_window_end)
 )
 
-START_POST_REFORM <- "2015-09-01"
-END_POST_REFORM <- "2020-09-01"
-
-# ------------------------------------------------------------
-# Identify students from the post-reform cohort:
-# born in 1998 and observed at the start and end of the
-# relevant study period.
-# ------------------------------------------------------------
 respondents_post <- find_respondents_in_waves(
-  panel,
-  birth_year = 1998,
-  waves = c(START_POST_REFORM, END_POST_REFORM)
+  df,
+  birth_year = params$post_birth_year,
+  waves = c(params$post_window_start, params$post_window_end)
 )
+```
+
+```{r}
+df_did <- df %>% 
+  mutate(
+    group = case_when(
+      pid %in% respondents_pre  ~ 0,            # pre-reform cohort
+      pid %in% respondents_post ~ 1             # post-reform cohort
+    ),
+    month_relative = case_when(
+      group == 0 ~ lubridate::interval(as_date(params$pre_window_start), lubridate::as_date(wave)) %/% months(1),
+      group == 1 ~ lubridate::interval(as_date(params$post_window_start), lubridate::as_date(wave)) %/% months(1),
+      .default = NA_real_
+    ),
+    quarter_relative = case_when(
+      group == 0 ~ lubridate::interval(as_date(params$pre_window_start), lubridate::as_date(wave)) %/% months(3),
+      group == 1 ~ lubridate::interval(as_date(params$post_window_start), lubridate::as_date(wave)) %/% months(3),
+      .default = NA_real_
+    ),
+    year_relative = case_when(
+      group == 0 ~ lubridate::interval(as_date(params$pre_window_start), lubridate::as_date(wave)) %/% months(12),
+      group == 1 ~ lubridate::interval(as_date(params$post_window_start), lubridate::as_date(wave)) %/% months(12),
+      .default = NA_real_
+    )
+  ) %>% 
+  # Keep only treated cohorts and the desired time window
+  filter(group %in% c(0, 1)) %>% 
+  filter(month_relative >= 0 & month_relative <= 130) %>% 
+  select(-wave) %>% 
+  transmute(
+    nomem_encr,
+    month_relative,
+    group,
+    student,
+    coresidence,
+    income = nettoink_f
+  ) %>% 
+  arrange(nomem_encr, month_relative)
 ```
 
