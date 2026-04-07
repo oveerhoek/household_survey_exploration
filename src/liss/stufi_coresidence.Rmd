@@ -88,15 +88,23 @@ df_naive <- df %>%
   summarize(n_months = n(), coresidence = sum(coresidence, na.rm = TRUE) / 12, coresidence_sq = coresidence ** 2) %>% 
   ungroup() %>% 
   drop_na() %>% 
-  full_join(later_income) %>% 
-  full_join(later_educ) %>% 
+  full_join(later_income, by = "pid") %>% 
+  full_join(later_educ, by = "pid") %>% 
   filter(!(hbo == 0 & wo == 0)) %>% 
   drop_na() 
-  
 
 rm(later_income)
 rm(later_educ)
 
+df_naive %>% 
+  transmute(
+    `Co-residence (Years with parents)` = coresidence,
+    `Co-residence ^ 2` = coresidence_sq,
+    `Log(income)` = income,
+    `University (1 = yes; 0 = no)` = wo,
+    `University applied sciences (1 = yes; 0 = no)` = hbo
+  ) %>% 
+  datasummary_skim(data = .)
 ```
 
 ```{r}
