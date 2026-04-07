@@ -10,6 +10,7 @@ params:
 library(tidyverse)
 library(modelsummary)
 library(lubridate)
+library(fixest)
 
 PATH_LISS_DATA <- "../../data/liss/"
 PATH_LISS_TMP_DATA <- "../../tmp/liss/"
@@ -89,6 +90,7 @@ df_naive <- df %>%
   drop_na() %>% 
   full_join(later_income) %>% 
   full_join(later_educ) %>% 
+  filter(!(hbo == 0 & wo == 0)) %>% 
   drop_na() 
   
 
@@ -101,26 +103,55 @@ rm(later_educ)
 naive_models <- list(
   "(1) log(income)" = lm(income ~ coresidence, data = df_naive),
   "(2) log(income)" = lm(income ~ coresidence + coresidence_sq, data = df_naive),
-  "(3) log(income)" = lm(income ~ coresidence + coresidence_sq + hbo + wo, data = df_naive)
+  "(3) log(income)" = lm(income ~ coresidence + coresidence_sq + wo, data = df_naive)
 )
 
 modelsummary(
   models = naive_models,
   coef_map = c(
+    `(Intercept)` = "(Intercept)",
     income = "log(income)",
     coresidence = "co-residence",
     coresidence_sq = "(co-residence)^2",
-    hbo = "hbo (university of applied sciences)",
     wo = "wo (research university)"
   ),
   gof_omit = "AIC|BIC|Log|RMSE",
   estimate  = "{estimate}{stars}",
   statistic = "({std.error})",
+  title = "Table 1: A naive estimation of income based on co-residence.",
   stars = c('*' = .10, '**' = .05, '***' = .01)
 )
+
+naive_models_coefs <- naive_models$`(3) log(income`$coefficients
+
+tibble(
+  coresidence = seq(0, 5, by = 1),
+  income = naive_models_coefs[["(Intercept)"]] + 
+    naive_models_coefs[["coresidence"]] * coresidence + 
+    naive_models_coefs[["coresidence_sq"]] * (coresidence ** 2)
+  ) %>% 
+  ggplot(aes(x = coresidence, y = income)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(
+    name = "log(Income)",
+    sec.axis = sec_axis(
+      transform = ~ exp(.),
+      name = "Income (€)",
+      labels = scales::label_currency(prefix = "€", big.mark = ",")
+    )
+  ) +
+  labs(
+    title = "Relationship between co-residence and income (naive estimation)",
+    x = "Parental co-residence (number of years)",
+    y = "log(income)"
+  ) +
+  theme_minimal()
+
+rm(naive_models, naive_models_coefs)
+
+
 ```
-
-
 
 ```{r}
 find_respondents_in_waves <- function(df, birth_year, waves) {
@@ -169,6 +200,8 @@ cohorts <- purrr::map_dfr(
   }
 )
 
+rm(min_year, max_year)
+
 # TODO: Select based on student status instead of birth year
 ```
 
@@ -213,6 +246,7 @@ df_did <- df %>%
   ) %>% 
   arrange(pid, month_relative)
 ```
+
 ```{r}
 df_did_monthly <- df_did %>% 
   filter(wo == 1 | hbo == 1) %>% 
@@ -257,7 +291,6 @@ df_did_yearly <- df_did %>%
 ```{r}
 
 ```
-
 
 ```{r}
 # df_did_monthly %>% 
@@ -313,6 +346,7 @@ df_did_yearly %>%
   scale_y_continuous(limits = c(0.5, 1), labels = scales::percent) +
   theme_minimal()
 ```
+
 ```{r}
 df_did_monthly %>% 
   group_by(group) %>% 
@@ -344,4 +378,6 @@ df_did_monthly %>%
   theme_minimal() 
 ```
 
+```{r}
 
+```
