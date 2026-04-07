@@ -1,0 +1,632 @@
+---
+title: "Parental Co-residence, the Dutch Study Grant Reform, and Earnings"
+output: html_notebook
+params:
+  pre_year: 2014
+  post_year: 2015
+---
+
+```{r setup}
+# Core packages for data work, estimation, RD diagnostics, tables, and figures.
+library(tidyverse)
+library(fixest)
+library(ivreg)
+library(rdrobust)
+library(rddensity)
+library(modelsummary)
+library(patchwork)
+library(lubridate)
+
+set.seed(42)
+
+PATH_LISS_DATA <- "../../data/liss/"
+PATH_LISS_TMP_DATA <- "../../tmp/liss/"
+PATH_OUTPUT <- "../../output/"
+
+dir.create(PATH_OUTPUT, showWarnings = FALSE, recursive = TRUE)
+
+theme_set(theme_minimal())
+options(modelsummary_format_numeric_latex = "plain")
+```
+
+## Data setup
+
+The design compares adjacent study-entry cohorts around the 2015 abolition of the Dutch basic study grant. The main idea is that cohorts just after the reform faced weaker financial support, which should raise the incentive to stay with parents while studying.
+
+```{r load-data}
+# Highest education is used to focus on respondents who eventually complete
+# tertiary education. This keeps the analysis close to the student population
+# affected by the reform.
+highest_educ <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_highest_educ.Rds")) %>%
+  transmute(
+    pid = nomem_encr,
+    highest_educ = haven::zap_labels(highest_educ)
+  ) %>%
+  group_by(pid) %>%
+  summarize(
+    wo = as.numeric(any(highest_educ == 26, na.rm = TRUE)),
+    hbo = as.numeric(any(highest_educ == 20, na.rm = TRUE) & !any(highest_educ == 26, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+# The core panel provides monthly income, age, student status, and the
+# household-position measure used to define parental co-residence.
+df <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_core.Rds")) %>%
+  transmute(
+    pid = nomem_encr,
+    wave = zoo::as.Date(zoo::as.yearmon(as.character(wave), "%Y%m")),
+    income_monthly = nettoink_f,
+    positie = haven::zap_labels(positie),
+    coresidence = case_when(
+      positie == 5 ~ 1,
+      positie %in% c(1, 2, 3, 4, 6, 7) ~ 0,
+      positie == 9 ~ NA_real_,
+      .default = NA_real_
+    ),
+    birth_year = gebjaar,
+    student = case_when(
+      belbezig == 7 ~ 1,
+      .default = 0
+    ),
+    age = leeftijd,
+    geslacht = haven::as_factor(geslacht)
+  ) %>%
+  left_join(highest_educ, by = "pid")
+
+rm(highest_educ)
+```
+
+```{r helper-functions}
+# Cohorts are defined by the year respondents turn 18 and start the September
+# study year. We keep only respondents observed both at study start and again
+# at age 30 so the instrument and outcome are defined on the same sample.
+find_respondents_in_waves <- function(df, birth_year, waves) {
+  df %>%
+    filter(birth_year == .env$birth_year) %>%
+    filter(wave %in% as.Date(waves)) %>%
+    distinct(pid, wave) %>%
+    count(pid) %>%
+    filter(n == length(waves)) %>%
+    pull(pid)
+}
+
+extract_model_term <- function(model, pattern) {
+  term_name <- grep(pattern, names(coef(model)), value = TRUE)[1]
+
+  if (is.na(term_name)) {
+    return(tibble(term = NA_character_, estimate = NA_real_, std.error = NA_real_))
+  }
+
+  coef_table <- as.data.frame(coeftable(model), stringsAsFactors = FALSE)
+  coef_table$term <- rownames(coef_table)
+
+  coef_table %>%
+    as_tibble() %>%
+    filter(term == .env$term_name) %>%
+    transmute(
+      term,
+      estimate = Estimate,
+      std.error = `Std. Error`
+    )
+}
+
+extract_wald_stat <- function(model, variable) {
+  stat <- tryCatch(fixest::wald(model, variable), error = function(e) NULL)
+
+  if (is.null(stat)) {
+    return(tibble(statistic = NA_real_, p.value = NA_real_))
+  }
+
+  tibble(
+    statistic = unname(stat["stat"]),
+    p.value = unname(stat["p"])
+  )
+}
+
+extract_rd_effect <- function(rd_object, label) {
+  tibble(
+    specification = label,
+    estimate = unname(rd_object$coef[1]),
+    std.error = unname(rd_object$se[1]),
+    ci_low = estimate - 1.96 * std.error,
+    ci_high = estimate + 1.96 * std.error
+  )
+}
+
+run_placebo_iv <- function(data, cutoff_year) {
+  placebo_data <- data %>%
+    mutate(
+      running_var_placebo = cohort_year - cutoff_year,
+      post_placebo = as.integer(cohort_year >= cutoff_year)
+    )
+
+  feols(
+    log_income_30 ~ wo + hbo + female + running_var_placebo |
+      years_coresident ~ post_placebo,
+    data = placebo_data,
+    vcov = "HC1"
+  )
+}
+
+run_subsample_iv <- function(data, label) {
+  model <- feols(
+    log_income_30 ~ wo + hbo + running_var |
+      years_coresident ~ post_reform,
+    data = data,
+    vcov = "HC1"
+  )
+
+  extract_model_term(model, "years_coresident") %>%
+    mutate(
+      group = label,
+      ci_low = estimate - 1.96 * std.error,
+      ci_high = estimate + 1.96 * std.error
+    )
+}
+```
+
+```{r build-df-did}
+cohorts <- purrr::map_dfr(
+  seq(params$pre_year - 5, params$post_year + 5),
+  function(year) {
+    birth_year <- year - 18
+
+    waves <- as.Date(c(
+      paste0(year, "-09-01"),
+      paste0(year + 12, "-09-01")
+    ))
+
+    pids <- find_respondents_in_waves(
+      df,
+      birth_year = birth_year,
+      waves = waves
+    )
+
+    tibble(
+      pid = pids,
+      cohort_year = year
+    )
+  }
+)
+
+# df_did is the base panel object used throughout the rest of the notebook.
+df_did <- df %>%
+  left_join(cohorts, by = "pid") %>%
+  mutate(
+    month_relative = interval(make_date(cohort_year, 9, 1), as_date(wave)) %/% months(1),
+    post_reform = as.integer(cohort_year >= params$post_year),
+    running_var = cohort_year - params$post_year,
+    female = as.integer(geslacht == "Female")
+  ) %>%
+  filter(!is.na(cohort_year)) %>%
+  filter(month_relative >= 0 & month_relative < 72) %>%
+  arrange(pid, month_relative)
+
+# The treatment is the number of years lived with parents between ages 18 and 23.
+# The outcome is log annual income at age 30, requiring 12 observed months.
+later_income <- df %>%
+  filter(age == 30) %>%
+  select(pid, income_monthly) %>%
+  group_by(pid) %>%
+  summarize(
+    n_income_months = sum(!is.na(income_monthly)),
+    log_income_30 = log(sum(income_monthly, na.rm = TRUE) + 1),
+    .groups = "drop"
+  ) %>%
+  filter(n_income_months == 12)
+
+analysis_df <- df_did %>%
+  group_by(pid, cohort_year, post_reform, running_var) %>%
+  summarize(
+    years_coresident = sum(coresidence, na.rm = TRUE) / 12,
+    n_core_months = sum(!is.na(coresidence)),
+    wo = max(coalesce(wo, 0), na.rm = TRUE),
+    hbo = max(coalesce(hbo, 0), na.rm = TRUE),
+    female = max(coalesce(female, 0), na.rm = TRUE),
+    geslacht = first(na.omit(as.character(geslacht))),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    wo = replace_na(wo, 0),
+    hbo = replace_na(hbo, 0),
+    female = replace_na(female, 0),
+    geslacht = factor(geslacht)
+  ) %>%
+  left_join(later_income, by = "pid") %>%
+  filter(n_core_months >= 60) %>%
+  filter(wo == 1 | hbo == 1) %>%
+  drop_na(years_coresident, log_income_30)
+
+analysis_df %>%
+  summarize(
+    n = n(),
+    cohorts_min = min(cohort_year),
+    cohorts_max = max(cohort_year),
+    mean_coresidence_years = mean(years_coresident),
+    mean_log_income_30 = mean(log_income_30)
+  )
+```
+
+## EDA
+
+Before estimating causal effects, it is useful to check whether the reform cohort appears to live with parents longer on average and whether the sample remains balanced around the cutoff.
+
+```{r eda-plots}
+cohort_means <- analysis_df %>%
+  group_by(cohort_year, post_reform) %>%
+  summarize(
+    years_coresident = mean(years_coresident, na.rm = TRUE),
+    log_income_30 = mean(log_income_30, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+
+p_core <- ggplot(cohort_means, aes(x = cohort_year, y = years_coresident)) +
+  geom_line(linewidth = 0.9, color = "#1B9E77") +
+  geom_point(size = 2, color = "#1B9E77") +
+  geom_vline(xintercept = params$post_year, linetype = 2, color = "#D95F02") +
+  scale_x_continuous(breaks = seq(min(cohort_means$cohort_year), max(cohort_means$cohort_year), by = 1)) +
+  labs(
+    title = "Average years co-resident by cohort",
+    x = "Cohort year",
+    y = "Years lived with parents, ages 18-23"
+  )
+
+p_income <- ggplot(cohort_means, aes(x = cohort_year, y = log_income_30)) +
+  geom_line(linewidth = 0.9, color = "#7570B3") +
+  geom_point(size = 2, color = "#7570B3") +
+  geom_vline(xintercept = params$post_year, linetype = 2, color = "#D95F02") +
+  scale_x_continuous(breaks = seq(min(cohort_means$cohort_year), max(cohort_means$cohort_year), by = 1)) +
+  labs(
+    title = "Average log income at age 30 by cohort",
+    x = "Cohort year",
+    y = "Log annual income at age 30"
+  )
+
+p_core + p_income
+```
+
+## Summary statistics
+
+Table 1 compares pre- and post-reform cohorts. This is a useful check for whether the cohorts close to the cutoff look broadly similar on observables.
+
+```{r table1}
+table1_path <- paste0(PATH_LISS_TMP_DATA, "table1_summary.html")
+
+datasummary(
+  (years_coresident + log_income_30 + wo + hbo + female + n_core_months) ~ post_reform * (Mean + SD),
+  data = analysis_df,
+  title = "Table 1. Summary statistics by pre/post reform cohort",
+  output = table1_path
+)
+```
+
+## OLS benchmark
+
+The OLS regression is only a descriptive benchmark. It likely mixes the causal effect of co-residence with selection into living at home.
+
+```{r ols}
+ols_model <- feols(
+  log_income_30 ~ years_coresident + wo + hbo + female + running_var,
+  data = analysis_df,
+  vcov = "HC1"
+)
+
+etable(ols_model)
+```
+
+## First stage
+
+The first stage tests whether the 2015 reform shifted the amount of time students lived with parents. If the instrument is weak, the IV estimate becomes unreliable.
+
+```{r first-stage}
+first_stage_model <- feols(
+  years_coresident ~ post_reform + wo + hbo + female + running_var,
+  data = analysis_df,
+  vcov = "HC1"
+)
+
+first_stage_f <- extract_wald_stat(first_stage_model, "post_reform")
+first_stage_f
+
+if (!is.na(first_stage_f$statistic) && first_stage_f$statistic < 10) {
+  warning("The first-stage F-statistic is below 10. Instrument relevance may be weak.")
+}
+
+etable(first_stage_model)
+```
+
+## Reduced form
+
+The reduced form measures whether cohorts exposed to the reform earn differently at age 30, before scaling by the first-stage shift in co-residence.
+
+```{r reduced-form}
+reduced_form_model <- feols(
+  log_income_30 ~ post_reform + wo + hbo + female + running_var,
+  data = analysis_df,
+  vcov = "HC1"
+)
+
+etable(reduced_form_model)
+```
+
+## IV / 2SLS
+
+The IV estimate isolates the component of parental co-residence induced by the grant reform. Under the exclusion restriction, this gives the local causal effect for compliers around the cutoff.
+
+```{r iv-main}
+iv_model <- feols(
+  log_income_30 ~ wo + hbo + female + running_var |
+    years_coresident ~ post_reform,
+  data = analysis_df,
+  vcov = "HC1"
+)
+
+etable(iv_model)
+```
+
+## Main results table
+
+Table 2 puts the benchmark OLS, first stage, reduced form, and IV estimates side by side. All reported standard errors are HC1 robust.
+
+```{r table2}
+table2_path <- paste0(PATH_OUTPUT, "table2_main.tex")
+
+modelsummary(
+  list(
+    "OLS" = ols_model,
+    "First stage" = first_stage_model,
+    "Reduced form" = reduced_form_model,
+    "IV" = iv_model
+  ),
+  coef_map = c(
+    "years_coresident" = "Years co-resident",
+    "fit_years_coresident" = "Years co-resident",
+    "post_reform" = "Post reform",
+    "wo" = "WO degree",
+    "hbo" = "HBO degree",
+    "female" = "Female",
+    "running_var" = "Running variable"
+  ),
+  gof_omit = "AIC|BIC|IC|Log|Adj|RMSE|Std.Errors",
+  estimate = "{estimate}{stars}",
+  statistic = "({std.error})",
+  stars = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  title = "Table 2. Main results",
+  notes = sprintf("HC1 robust standard errors in parentheses. First-stage Wald F-statistic on post_reform = %.2f.", first_stage_f$statistic),
+  output = table2_path
+)
+```
+
+## RD estimation
+
+The regression discontinuity design uses cohort year as the running variable and the 2015 policy change as the cutoff. The first stage, reduced form, and fuzzy RD versions mirror the linear specifications above but localize the comparison near the cutoff.
+
+```{r rd-estimation}
+rd_first_stage <- rdrobust(
+  y = analysis_df$years_coresident,
+  x = analysis_df$running_var,
+  c = 0
+)
+
+rd_reduced_form <- rdrobust(
+  y = analysis_df$log_income_30,
+  x = analysis_df$running_var,
+  c = 0
+)
+
+rd_fuzzy <- rdrobust(
+  y = analysis_df$log_income_30,
+  x = analysis_df$running_var,
+  c = 0,
+  fuzzy = analysis_df$years_coresident
+)
+
+density_test <- rddensity(
+  X = analysis_df$running_var,
+  c = 0
+)
+
+rd_summary <- bind_rows(
+  extract_rd_effect(rd_first_stage, "First stage RD"),
+  extract_rd_effect(rd_reduced_form, "Reduced form RD"),
+  extract_rd_effect(rd_fuzzy, "Fuzzy RD / IV")
+)
+
+rd_summary
+density_test
+```
+
+## Figures
+
+The figures visualize the discontinuity, the event-study pattern across cohorts, the density test, and sensitivity to the bandwidth choice.
+
+```{r figures, results='hide', message=FALSE, warning=FALSE}
+png(
+  filename = paste0(PATH_OUTPUT, "figure1_rdplot_first_stage.png"),
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+rdplot(
+  y = analysis_df$years_coresident,
+  x = analysis_df$running_var,
+  c = 0,
+  title = "Figure 1. RD plot: years co-resident",
+  x.label = "Running variable: cohort year - 2015",
+  y.label = "Years co-resident, ages 18-23"
+)
+dev.off()
+
+png(
+  filename = paste0(PATH_OUTPUT, "figure2_rdplot_reduced_form.png"),
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+rdplot(
+  y = analysis_df$log_income_30,
+  x = analysis_df$running_var,
+  c = 0,
+  title = "Figure 2. RD plot: log income at age 30",
+  x.label = "Running variable: cohort year - 2015",
+  y.label = "Log annual income at age 30"
+)
+dev.off()
+
+event_study_model <- feols(
+  years_coresident ~ i(cohort_year, ref = 2014) + wo + hbo + female,
+  data = analysis_df,
+  vcov = "HC1"
+)
+
+cohort_grid <- sort(unique(analysis_df$cohort_year))
+cutoff_position <- sum(cohort_grid < 2015) - 0.5
+
+png(
+  filename = paste0(PATH_OUTPUT, "figure3_event_study.png"),
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+iplot(
+  event_study_model,
+  main = "Figure 3. Event study around the 2015 reform",
+  xlab = "Cohort coefficients relative to 2014",
+  ylab = "Effect on years co-resident"
+)
+abline(v = cutoff_position, lty = 2, col = "red", lwd = 2)
+dev.off()
+
+png(
+  filename = paste0(PATH_OUTPUT, "figure4_mccrary_density.png"),
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+rdplotdensity(rdd = density_test, X = analysis_df$running_var)
+dev.off()
+
+bandwidth_sensitivity <- map_dfr(
+  2:6,
+  function(h) {
+    rd_h <- rdrobust(
+      y = analysis_df$log_income_30,
+      x = analysis_df$running_var,
+      c = 0,
+      h = h,
+      fuzzy = analysis_df$years_coresident
+    )
+
+    extract_rd_effect(rd_h, paste0("h=", h)) %>%
+      mutate(bandwidth = h)
+  }
+)
+
+bandwidth_plot <- ggplot(bandwidth_sensitivity, aes(x = bandwidth, y = estimate)) +
+  geom_line(color = "#1F78B4", linewidth = 0.8) +
+  geom_point(color = "#1F78B4", size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.15, color = "#1F78B4") +
+  geom_hline(yintercept = 0, linetype = 2, color = "gray50") +
+  scale_x_continuous(breaks = 2:6) +
+  labs(
+    title = "Figure 5. Bandwidth sensitivity of fuzzy RD estimate",
+    x = "Symmetric bandwidth in cohort-years",
+    y = "IV estimate on log income"
+  )
+
+ggsave(
+  filename = paste0(PATH_OUTPUT, "figure5_bandwidth_sensitivity.png"),
+  plot = bandwidth_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+## Robustness checks
+
+The placebo cutoffs check whether the estimated discontinuity appears where no reform happened. The donut specification drops cohorts immediately around the cutoff to see whether the main result is driven only by observations closest to the threshold.
+
+```{r robustness}
+placebo_2013_model <- run_placebo_iv(analysis_df, 2013)
+placebo_2014_model <- run_placebo_iv(analysis_df, 2014)
+
+donut_iv_model <- analysis_df %>%
+  filter(abs(running_var) > 1) %>%
+  feols(
+    log_income_30 ~ wo + hbo + female + running_var |
+      years_coresident ~ post_reform,
+    data = .,
+    vcov = "HC1"
+  )
+
+table3_path <- paste0(PATH_OUTPUT, "table3_robustness.tex")
+
+modelsummary(
+  list(
+    "Baseline IV" = iv_model,
+    "Placebo 2013" = placebo_2013_model,
+    "Placebo 2014" = placebo_2014_model,
+    "Donut RD" = donut_iv_model
+  ),
+  coef_map = c(
+    "fit_years_coresident" = "Years co-resident",
+    "wo" = "WO degree",
+    "hbo" = "HBO degree",
+    "female" = "Female",
+    "running_var" = "Running variable",
+    "running_var_placebo" = "Running variable",
+    "post_reform" = "Post reform",
+    "post_placebo" = "Placebo post"
+  ),
+  gof_omit = "AIC|BIC|IC|Log|Adj|RMSE|Std.Errors",
+  estimate = "{estimate}{stars}",
+  statistic = "({std.error})",
+  stars = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  title = "Table 3. Robustness checks",
+  notes = "HC1 robust standard errors in parentheses.",
+  output = table3_path
+)
+```
+
+## Heterogeneity
+
+Following your instruction to drop parental income, heterogeneity is shown only by sex. This checks whether the local effect differs for women and men.
+
+```{r heterogeneity}
+heterogeneity_results <- bind_rows(
+  run_subsample_iv(filter(analysis_df, female == 1), "Female"),
+  run_subsample_iv(filter(analysis_df, female == 0), "Male")
+)
+
+heterogeneity_plot <- ggplot(heterogeneity_results, aes(x = group, y = estimate)) +
+  geom_point(size = 2.5, color = "#E31A1C") +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.1, color = "#E31A1C") +
+  geom_hline(yintercept = 0, linetype = 2, color = "gray50") +
+  labs(
+    title = "Figure 6. Heterogeneity by sex",
+    x = NULL,
+    y = "IV estimate on log income"
+  )
+
+ggsave(
+  filename = paste0(PATH_OUTPUT, "figure6_heterogeneity.png"),
+  plot = heterogeneity_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+heterogeneity_results
+```
+
+## Interpretation checklist
+
+The causal interpretation is strongest if three pieces line up:
+
+1. The first stage is strong, so the reform meaningfully changed co-residence.
+2. Pre-reform cohorts look smooth in the event-study and placebo tests.
+3. The McCrary test does not suggest sorting around the cutoff.
+
+If these checks fail, the IV estimate should be treated more cautiously.
