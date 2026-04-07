@@ -7,11 +7,14 @@ params:
 ---
 
 ```{r}
-library(tidyverse)
-library(modelsummary)
-library(lubridate)
-library(fixest)
-library(margins)
+library(tidyverse, quietly = TRUE)
+library(modelsummary, quietly = TRUE)
+library(lubridate, quietly = TRUE)
+
+library(fixest, quietly = TRUE)
+library(margins, quietly = TRUE)
+
+requireNamespace("DT", quietly = TRUE)
 
 PATH_LISS_DATA <- "../../data/liss/"
 PATH_LISS_TMP_DATA <- "../../tmp/liss/"
@@ -48,10 +51,20 @@ df <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_core.Rds")) %>%
     age = leeftijd
     # sex = as_factor(geslacht),
   ) %>% 
-  full_join(highest_educ)
+  full_join(highest_educ, by = "pid")
 
 rm(highest_educ)
 
+df %>% 
+  mutate(year = year(wave)) %>% 
+  group_by(year) %>% 
+  summarize(
+    income = 12 * mean(income_monthly, na.rm = TRUE),
+    coresidence = mean(coresidence, na.rm = TRUE),
+    student = mean(student, na.rm = TRUE)
+  ) %>% 
+  ungroup() %>%
+  DT::datatable()
 ```
 
 ## Naive model
@@ -104,10 +117,10 @@ df_naive %>%
     `Co-residence (Years with parents)` = coresidence,
     `Co-residence ^ 2` = coresidence_sq,
     `Log(income)` = income,
-    `University (1 = yes; 0 = no)` = wo,
-    `University applied sciences (1 = yes; 0 = no)` = hbo
+    `WO: University (1 = yes; 0 = no)` = wo,
+    `HBO: University of Applied Sciences (1 = yes; 0 = no)` = hbo
   ) %>% 
-  datasummary_skim(data = .)
+  datasummary_skim(data = ., title = "Table 1: Summary statistics of the naive estimation.")
 
 naive_models <- list(
   "(1) log(income)" = lm(income ~ coresidence, data = df_naive),
@@ -131,22 +144,11 @@ modelsummary(
   stars = c('*' = .10, '**' = .05, '***' = .01)
 )
 
-naive_models_coefs <- naive_models[[3]]
-
-naive_margins <- margins(naive_models[[3]])
-
-naive_margins %>% 
-  as_tibble() %>% 
-  ggplot(aes(x = coresidence, y = fitted)) +
-  geom_line() +
-  geom_point() + 
-  geom_errorbar(aes(ymin = fitted - 1.96 * se.fitted, ymax = fitted + 1.96 * se.fitted))
-
 tibble(
   coresidence = seq(0, 5, by = 1),
-  income = naive_models_coefs[["(Intercept)"]] + 
-    naive_models_coefs[["coresidence"]] * coresidence + 
-    naive_models_coefs[["coresidence_sq"]] * (coresidence ** 2)
+  income = naive_models[[3]]$coefficients[["(Intercept)"]] + 
+    naive_models[[3]]$coefficients[["coresidence"]] * coresidence + 
+    naive_models[[3]]$coefficients[["coresidence_sq"]] * (coresidence ** 2)
   ) %>% 
   ggplot(aes(x = coresidence, y = income)) +
   geom_line() +
@@ -166,7 +168,7 @@ tibble(
   ) +
   theme_minimal()
 
-rm(naive_models, naive_models_coefs)
+rm(naive_models)
 
 
 ```
