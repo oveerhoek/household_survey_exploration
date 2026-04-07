@@ -118,19 +118,6 @@ extract_variable_code <- function(variable_name) {
 #'
 #' Given a LISS variable name containing a two-digit year at positions 3--4
 #' (e.g. \code{"cw18a134"}), returns the four-digit year (e.g. \code{2018}).
-#'
-#' @param variable_name A character scalar containing a LISS variable name.
-#'
-#' @return An integer year (e.g. \code{2018}).
-#'
-#' @details
-#' This implementation assumes the year is stored as \code{YY} at positions 3--4.
-#' If naming conventions change, use a regex extraction.
-#'
-#' @examples
-#' extract_variable_year("cw18a134")  # 2018
-#'
-#' @export
 extract_variable_year <- function(variable_name) {
   return(2000 + as.integer(substr(variable_name, 3, 4)))
 }
@@ -191,39 +178,6 @@ housing <- load_files("cd.*dta") %>%
   )
 
 write_rds(housing, paste0(PATH_LISS_TMP_DATA, "liss_housing.Rds"))
-
-# coresidence <- load_files("cf.*dta") %>%
-#   select(
-#     nomem_encr,
-#     matches("^cf\\d{2}[a-z]017$"),
-#     matches("^cf\\d{2}[a-z]451$")
-#   ) %>%
-#   rename_with(
-#     ~ paste0("coresidence", 2000 + as.integer(substr(.x, 3, 4))),
-#     -nomem_encr
-#   ) %>%
-#   group_by(nomem_encr) %>%
-#   summarise(
-#     across(starts_with("coresidence"),
-#            ~ dplyr::first(na.omit(.x)))
-#   ) %>%
-#   ungroup() %>%
-#   pivot_longer(
-#     names_to = "year",
-#     values_to = "coresidence",
-#     cols = starts_with("coresidence"),
-#     names_prefix = "coresidence"
-#   ) %>%
-#   transmute(
-#     nomem_encr,
-#     year = as.numeric(year),
-#     coresidence = case_when(
-#       coresidence == 4 ~ 1,
-#       .default = 0
-#     )
-#   )
-# 
-# write_rds(coresidence, paste0(PATH_LISS_TMP_DATA, "liss_coresidence.Rds"))
 
 work_schooling <- load_files("cw.*dta") %>%
   select(
