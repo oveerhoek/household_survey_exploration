@@ -625,8 +625,8 @@ heterogeneity_results
 
 The causal interpretation is strongest if three pieces line up:
 
-1. The first stage is strong, so the reform meaningfully changed co-residence.
-2. Pre-reform cohorts look smooth in the event-study and placebo tests.
-3. The McCrary test does not suggest sorting around the cutoff.
+1.  The first stage is strong, so the reform meaningfully changed co-residence.
+2.  Pre-reform cohorts look smooth in the event-study and placebo tests.
+3.  The McCrary test does not suggest sorting around the cutoff.
 
 If these checks fail, the IV estimate should be treated more cautiously.
