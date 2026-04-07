@@ -1,25 +1,35 @@
 ---
 title: "Moving out for a better career: Parental co-residence and later earnings"
-output: html_notebook
+output: 
+  html_notebook: 
+    number_sections: true
 params:
   pre_year: 2014
   post_year: 2015
+  path_data: "../../data/liss/"
+  path_tmp: "../../tmp/liss/"
 ---
 
 ```{r}
-library(tidyverse, quietly = TRUE)
-library(modelsummary, quietly = TRUE)
-library(lubridate, quietly = TRUE)
+# Loading dependencies
+library(conflicted)
 
-library(fixest, quietly = TRUE)
-library(margins, quietly = TRUE)
+library(tidyverse) # Data wrangling
+conflicts_prefer(
+  dplyr::filter,
+  dplyr::lag,
+)
+library(haven, include.only = "zap_labels")  
+library(modelsummary)
+library(DT)
+library(lubridate)
+library(margins)
+library(zoo)
+```
 
-requireNamespace("DT", quietly = TRUE)
-
-PATH_LISS_DATA <- "../../data/liss/"
-PATH_LISS_TMP_DATA <- "../../tmp/liss/"
-
-highest_educ <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_highest_educ.Rds")) %>% 
+```{r}
+# Loading the LISS data
+highest_educ <- read_rds(paste0(params$path_tmp, "liss_highest_educ.Rds")) %>% 
   transmute(
     pid = nomem_encr,
     highest_educ = haven::zap_labels(highest_educ)
@@ -27,11 +37,11 @@ highest_educ <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_highest_educ.Rds")) %>
   group_by(pid) %>%
   summarize(
     wo  = as.numeric(any(highest_educ == 26, na.rm = TRUE)),                     # university degree
-    hbo = as.numeric(any(highest_educ == 20, na.rm = TRUE) & !any(highest_educ == 26, na.rm = TRUE))
+    hbo = as.numeric(any(highest_educ == 20, na.rm = TRUE) & !any(highest_educ == 26, na.rm = TRUE)) # university of applied sciences degree
   ) %>% 
   ungroup()
 
-df <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_core.Rds")) %>%
+df <- read_rds(paste0(params$path_tmp, "liss_core.Rds")) %>%
   transmute(
     pid = nomem_encr,
     wave = zoo::as.Date(zoo::as.yearmon(as.character(wave), "%Y%m")),
@@ -49,22 +59,10 @@ df <- read_rds(paste0(PATH_LISS_TMP_DATA, "liss_core.Rds")) %>%
       .default = 0
     ),
     age = leeftijd
-    # sex = as_factor(geslacht),
   ) %>% 
   full_join(highest_educ, by = "pid")
 
 rm(highest_educ)
-
-df %>% 
-  mutate(year = year(wave)) %>% 
-  group_by(year) %>% 
-  summarize(
-    income = 12 * mean(income_monthly, na.rm = TRUE),
-    coresidence = mean(coresidence, na.rm = TRUE),
-    student = mean(student, na.rm = TRUE)
-  ) %>% 
-  ungroup() %>%
-  DT::datatable()
 ```
 
 ## Naive model
@@ -84,17 +82,15 @@ where:
 $\hat{\beta}_1$ is likely biased, because parental co-residence during college years is not random. More conscientious individuals, for example, may prefer to live with their parents and will also earn more later, on average.
 
 ```{r}
+# Construct data set for naive estimation
 later_income <- df %>% 
-  filter(age == 30) %>% 
+  dplyr::filter(age == 30) %>% 
   select(pid, wave, income_monthly) %>% 
   group_by(pid) %>% 
   summarize(n_months = n(), income = log(sum(income_monthly, na.rm = TRUE) + 1)) %>% 
   ungroup() %>% 
   filter(n_months == 12) %>% 
   select(-n_months)
-
-later_educ <- df %>% 
-  select(pid, wo, hbo)
 
 df_naive <- df %>% 
   filter(age >= 18 & age < 23) %>%
@@ -103,15 +99,15 @@ df_naive <- df %>%
   ungroup() %>% 
   drop_na() %>% 
   full_join(later_income, by = "pid") %>% 
-  full_join(later_educ, by = "pid") %>% 
+  full_join(select(df, pid, wo, hbo), by = "pid") %>% 
   filter(!(hbo == 0 & wo == 0)) %>% 
   drop_na() 
 
 rm(later_income)
-rm(later_educ)
 ```
 
 ```{r}
+# Estimate naive model
 df_naive %>% 
   transmute(
     `Co-residence (Years with parents)` = coresidence,
@@ -153,27 +149,19 @@ tibble(
   ggplot(aes(x = coresidence, y = income)) +
   geom_line() +
   geom_point() +
-  scale_y_continuous(
-    name = "log(Income)",
-    sec.axis = sec_axis(
-      transform = ~ exp(.),
-      name = "Income (€)",
-      labels = scales::label_currency(prefix = "€", big.mark = ",")
-    )
-  ) +
   labs(
     title = "Relationship between co-residence and income (naive estimation)",
     x = "Parental co-residence (number of years)",
     y = "log(income)"
   ) +
+  ylim(8, 10) +
   theme_minimal()
 
 rm(naive_models)
-
-
 ```
 
 ```{r}
+# Identify students in cohorts
 find_respondents_in_waves <- function(df, birth_year, waves) {
   # TODO: Check continous appearance in waves
   return(
@@ -226,27 +214,13 @@ rm(min_year, max_year)
 ```
 
 ```{r}
+# Construct data set for the DiD (First Stage)
 df_did <- df %>% 
   left_join(cohorts) %>% 
   mutate(
     month_relative = interval(make_date(group, 9, 1), as_date(wave)) %/% months(1),
     quarter_relative = interval(make_date(group, 9, 1), as_date(wave)) %/% months(3),
     year_relative = interval(make_date(group, 9, 1), as_date(wave)) %/% months(12)
-    # month_relative = case_when(
-    #   group == params$pre_year ~ lubridate::interval(make_date(), lubridate::as_date(wave)) %/% months(1),
-    #   group == params$post_year ~ lubridate::interval(as_date(params$post_window_start), lubridate::as_date(wave)) %/% months(1),
-    #   .default = NA_real_
-    # ),
-    # quarter_relative = case_when(
-    #   group == params$pre_year ~ lubridate::interval(as_date(params$pre_window_start), lubridate::as_date(wave)) %/% months(3),
-    #   group == params$post_year ~ lubridate::interval(as_date(params$post_window_start), lubridate::as_date(wave)) %/% months(3),
-    #   .default = NA_real_
-    # ),
-    # year_relative = case_when(
-    #   group == params$pre_year ~ lubridate::interval(as_date(params$pre_window_start), lubridate::as_date(wave)) %/% months(12),
-    #   group == params$post_year ~ lubridate::interval(as_date(params$post_window_start), lubridate::as_date(wave)) %/% months(12),
-    #   .default = NA_real_
-    # )
   ) %>% 
   # Keep only treated cohorts and the desired time window
   filter(!is.na(group)) %>% 
@@ -268,67 +242,77 @@ df_did <- df %>%
 ```
 
 ```{r}
+# Aggregate the DiD data set to months, quarters, and years
 df_did_monthly <- df_did %>% 
   filter(wo == 1 | hbo == 1) %>% 
   group_by(month_relative, group) %>% 
   summarize(
+    n_persons = length(unique(pid)),
     mean_core = mean(coresidence, na.rm = TRUE),
     sd_core   = sd(coresidence, na.rm = TRUE),
     n         = sum(!is.na(coresidence)),
     se_core   = sd_core / sqrt(n),
     ci_low    = mean_core - 1.96 * se_core,
-    ci_high   = mean_core + 1.96 * se_core
+    ci_high   = mean_core + 1.96 * se_core,
+    .groups = "drop"
   ) %>% 
-  ungroup()
+  arrange(group, month_relative)
 
 df_did_quarterly <- df_did %>% 
   filter(wo == 1 | hbo == 1) %>% 
   group_by(quarter_relative, group) %>% 
   summarize(
+    n_persons = length(unique(pid)),
     mean_core = mean(coresidence, na.rm = TRUE),
     sd_core   = sd(coresidence, na.rm = TRUE),
     n         = sum(!is.na(coresidence)),
     se_core   = sd_core / sqrt(n),
     ci_low    = mean_core - 1.96 * se_core,
-    ci_high   = mean_core + 1.96 * se_core
+    ci_high   = mean_core + 1.96 * se_core,
+    .groups = "drop"
   ) %>% 
-  ungroup()
+  arrange(group, quarter_relative)
 
 df_did_yearly <- df_did %>% 
   filter(wo == 1 | hbo == 1) %>% 
   group_by(year_relative, group) %>% 
   summarize(
+    n_persons = length(unique(pid)),
     mean_core = mean(coresidence, na.rm = TRUE),
     sd_core   = sd(coresidence, na.rm = TRUE),
     n         = sum(!is.na(coresidence)),
     se_core   = sd_core / sqrt(n),
     ci_low    = mean_core - 1.96 * se_core,
-    ci_high   = mean_core + 1.96 * se_core
+    ci_high   = mean_core + 1.96 * se_core,
+    .groups = "drop"
   ) %>% 
-  ungroup()
+  arrange(group, year_relative)
 ```
 
 ```{r}
+# Plot DiD trends
 
-```
+group_labels <- c(
+  "Control: Pre-reform cohort (N = 13)", "Treatment: Post-reform cohort (N = 14)"
+)
 
-```{r}
-# df_did_monthly %>% 
-#   ggplot(aes(x = month_relative, y = mean_core, color = factor(group))) +
-#   geom_line(linewidth = 1.25) +
-#   # geom_point() +
-#   scale_color_manual(
-#     values = c("red", "orange"),
-#     labels = c("Control: Pre-reform cohort", "Treatment: Post-reform cohort")
-#   ) +
-#   labs(
-#     title = "Trends in co-residence (2016 Dutch study grant reform)",
-#     x = "Time",
-#     y = "Parental co-residence (%)",
-#     color = "Cohort"
-#   ) +
-#   scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
-#   theme_minimal()
+df_did_monthly %>%
+  filter(group %in% c(params$pre_year, params$post_year)) %>% 
+  ggplot(aes(x = month_relative, y = mean_core, color = factor(group))) +
+  geom_line(linewidth = 1.25) +
+  # geom_point() +
+  scale_color_manual(
+    values = c("red", "darkgreen"),
+    labels = group_labels
+  ) +
+  labs(
+    title = "Trends in co-residence, comparing the 2014 and 2015 cohorts",
+    x = "Time (Months)",
+    y = "Parental co-residence (%)",
+    color = "Cohort"
+  ) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal()
 
 df_did_quarterly %>%
   filter(group %in% c(params$pre_year, params$post_year)) %>% 
@@ -337,10 +321,10 @@ df_did_quarterly %>%
   # geom_point() +
   scale_color_manual(
     values = c("red", "darkgreen"),
-    labels = c("Control: Pre-reform cohort", "Treatment: Post-reform cohort")
+    labels = group_labels
   ) +
   labs(
-    title = "Trends in co-residence (2016 Dutch study grant reform)",
+    title = "Trends in co-residence, comparing the 2014 and 2015 cohorts",
     x = "Time (Quarters)",
     y = "Parental co-residence (%)",
     color = "Cohort"
@@ -355,15 +339,15 @@ df_did_yearly %>%
   # geom_point() +
   scale_color_manual(
     values = c("red", "darkgreen"),
-    labels = c("Control: Pre-reform cohort", "Treatment: Post-reform cohort")
+    labels = group_labels
   ) +
   labs(
-    title = "Trends in co-residence, comparing the 2014 to the 2015 cohort",
+    title = "Trends in co-residence, comparing the 2014 and 2015 cohorts",
     x = "Time (years since start of study)",
     y = "Parental co-residence (%)",
     color = "Cohort"
   ) +
-  scale_y_continuous(limits = c(0.5, 1), labels = scales::percent) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
   theme_minimal()
 ```
 
@@ -371,7 +355,8 @@ df_did_yearly %>%
 df_did_monthly %>% 
   group_by(group) %>% 
   summarize(
-    mean_core = mean(mean_core, na.rm = TRUE) * 5
+    mean_core = mean(mean_core, na.rm = TRUE) * 5,
+    n_persons = min(n_persons, na.rm = TRUE)
   ) %>% 
   ungroup() %>% 
   ggplot(aes(x = group, y = mean_core)) +
@@ -391,7 +376,7 @@ df_did_monthly %>%
            alpha = 0.2, fill = "lightblue") +
   ylim(0, 5) +
   labs(
-    title = "Pre- and post-trends: Co-residence of study cohorts",
+    title = "Co-residence of different study cohorts",
     x = "Cohort (Year start studying)",
     y = "Parental co-residence (years)"
   ) +
